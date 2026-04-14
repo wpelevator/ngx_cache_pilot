@@ -14,7 +14,7 @@ concurrency:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
       matrix:
@@ -25,7 +25,7 @@ jobs:
       NGINX_VERSION: ${{ matrix.nginx_version }}
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - name: Show Docker versions
         run: |
