@@ -27,8 +27,8 @@ nginx-version:
 	"$(NGINX_BUILD_PREFIX)/sbin/nginx" -V
 
 format:
-	astyle -v --options='.astylerc' ngx_cache_purge_module.c || (echo 'astyle failed'; exit 1)
-	dos2unix --quiet ngx_cache_purge_module.c || (echo 'dos2unix failed'; exit 2)
+	astyle -v --options='.astylerc' ngx_cache_purge_module.c
+	dos2unix --quiet ngx_cache_purge_module.c
 
 test:
 	$(MAKE) nginx-build >/tmp/nginx-build.log
