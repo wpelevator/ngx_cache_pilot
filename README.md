@@ -23,10 +23,6 @@ The repository includes a containerized build environment with:
 - downloaded NGINX source in `/opt/nginx-src/nginx-$NGINX_VERSION`
 - `Test::Nginx` installed from `openresty/test-nginx`
 
-Build the image:
-
-    make image
-
 Open a shell in the container with the repository mounted at `/workspace`:
 
     make shell

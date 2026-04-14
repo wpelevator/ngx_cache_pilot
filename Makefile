@@ -9,15 +9,11 @@ DOCKER_COMPOSE ?= docker compose
 
 help:
 	@printf '%s\n' \
-		'make image            Build the development image' \
 		'make shell            Open a shell in the development container' \
 		'make nginx-build      Build NGINX with this module' \
 		'make nginx-version    Build info for the installed NGINX binary' \
 		'make format           Run the repository formatter' \
 		'make test             Run the Test::Nginx suite'
-
-image:
-	$(DOCKER_COMPOSE) build
 
 shell:
 	$(DOCKER_COMPOSE) run --rm dev
