@@ -32,8 +32,8 @@ nginx-version:
 	"$(NGINX_BUILD_PREFIX)/sbin/nginx" -V
 
 format:
-	astyle -v --options='.astylerc' ngx_cache_purge_module.c
-	dos2unix --quiet ngx_cache_purge_module.c
+	astyle -v --options=.astylerc ./ngx_cache_purge_module.c
+	dos2unix ./ngx_cache_purge_module.c
 
 test:
 	$(MAKE) nginx-build >/tmp/nginx-build.log
