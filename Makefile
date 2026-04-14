@@ -7,8 +7,8 @@ DOCKER_COMPOSE ?= docker compose
 DOCKER_SERVICE ?= dev
 IN_CONTAINER ?= $(shell [ -f /.dockerenv ] && echo 1 || echo 0)
 
-.PHONY: help image shell nginx-build nginx-version test \
-	_docker-run _nginx-build _nginx-version _test
+.PHONY: help image shell nginx-build nginx-version format test \
+	_docker-run _nginx-build _nginx-version _format _test
 
 help:
 	@printf '%s\n' \
@@ -16,6 +16,7 @@ help:
 		'make shell            Open a shell in the development container' \
 		'make nginx-build      Build NGINX with this module' \
 		'make nginx-version    Build info for the installed NGINX binary' \
+		'make format           Run the repository formatter' \
 		'make test             Run the Test::Nginx suite'
 
 image:
@@ -53,6 +54,16 @@ endif
 
 _nginx-version:
 	"$(NGINX_BUILD_PREFIX)/sbin/nginx" -V
+
+format:
+ifeq ($(IN_CONTAINER),1)
+	$(MAKE) _format
+else
+	$(MAKE) TARGET=_format _docker-run
+endif
+
+_format:
+	./.format.sh
 
 test:
 ifeq ($(IN_CONTAINER),1)
