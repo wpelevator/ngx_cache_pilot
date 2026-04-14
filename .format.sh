@@ -1,9 +1,9 @@
 #!/bin/sh
 
 # Search in the script folder
-pushd "$(dirname $0)" >/dev/null
+cd "$(dirname "$0")" || exit 1
 CWD="$(pwd -P)"
-popd >/dev/null
+cd "$CWD" || exit 1
 FILES='ngx_cache_purge_module.c'
 
 # The file format in accordance with the style defined in .astylerc
