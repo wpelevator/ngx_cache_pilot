@@ -35,5 +35,10 @@ jobs:
       - name: Build docker image
         run: docker compose build
 
+      - name: Lint code
+        run: |
+          docker compose run --rm dev make format
+          docker compose run --rm dev git diff --exit-code
+
       - name: Run tests
         run: docker compose run --rm dev make test
