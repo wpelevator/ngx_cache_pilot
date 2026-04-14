@@ -19,7 +19,9 @@ jobs:
       fail-fast: false
       matrix:
         nginx_version:
-          - "1.25.5"
+          - "1.26.3"
+          - "1.28.3"
+          - "1.29.8"
 
     env:
       NGINX_VERSION: ${{ matrix.nginx_version }}
