@@ -4,6 +4,8 @@ About
 `FastCGI`, `proxy`, `SCGI` and `uWSGI` caches. A purge operation removes the 
 content with the same cache key as the purge request has.
 
+_This module is not distributed with the NGINX source. See [the installation instructions](#installation-instructions)._
+
 
 Sponsors
 ========
@@ -15,26 +17,120 @@ Status
 This module is production-ready.
 
 
-Docker Build Environment
-========================
+Quick Start
+===========
+`ngx_cache_purge` supports multiple purge styles depending on how you want to
+address cached content:
+
+- exact URI purge
+- wildcard URI purge using a trailing `*`
+- cache-tag purge
+- surrogate-key purge
+
+For most users, the simplest starting point is a cached location plus a
+`PURGE` method restricted to trusted clients:
+
+```nginx
+http {
+    proxy_cache_path /tmp/cache keys_zone=tmpcache:10m;
+
+    server {
+        listen 8080;
+
+        location / {
+            proxy_pass         http://127.0.0.1:8000;
+            proxy_cache        tmpcache;
+            proxy_cache_key    "$uri$is_args$args";
+            proxy_cache_purge  PURGE from 127.0.0.1;
+        }
+    }
+}
+```
+
+That allows requests such as:
+
+    curl -i -X PURGE 'http://127.0.0.1:8080/path?query=1'
+
+If the configured cache key ends with `$uri`, you can also purge by wildcard
+URI using a trailing `*`:
+
+    curl -i -X PURGE 'http://127.0.0.1:8080/articles/2026/*'
+
+If you want cache-tag purging, enable the SQLite-backed index and watch the
+cache directory:
+
+```nginx
+http {
+    proxy_cache_path /tmp/cache keys_zone=tmpcache:10m;
+    cache_tag_index  sqlite /tmp/ngx_cache_purge_tags.sqlite;
+
+    server {
+        location /tagged/ {
+            proxy_pass         http://127.0.0.1:8000;
+            proxy_cache        tmpcache;
+            proxy_cache_key    "$uri$is_args$args";
+            proxy_cache_purge  PURGE soft from 127.0.0.1;
+            cache_tag_watch    on;
+        }
+    }
+}
+```
+
+That unlocks tag-based requests such as:
+
+    curl -i -X PURGE -H 'Cache-Tag: article-42, group-a' 'http://127.0.0.1:8080/tagged/item'
+
+or surrogate-key requests such as:
+
+    curl -i -X PURGE -H 'Surrogate-Key: article-42 group-a' 'http://127.0.0.1:8080/tagged/item'
+
+Installation Instructions
+=========================
+You need to build NGINX with this repository as an extra module via
+`--add-module`; it is not bundled with upstream NGINX.
+
+Recommended path: use the included development container
+
+- The repository includes a Debian-based build environment with NGINX source,
+  SQLite development headers, and `Test::Nginx`.
+- Open a shell in the container with the repository mounted at `/workspace`:
+
+      make shell
+
+- Configure and build NGINX with this module:
+
+      make nginx-build
+
+- Print the resulting build flags:
+
+      make nginx-version
+
+Build locally against your own NGINX source tree
+
+- Download and extract the NGINX source version you want to build against.
+- Install the usual NGINX build dependencies plus SQLite development headers.
+- Run `./configure` from the NGINX source tree and point `--add-module` at this
+  repository:
+
+```bash
+./configure \
+    --with-debug \
+    --with-http_ssl_module \
+    --add-module=/path/to/ngx_cache_purge
+make
+make install
+```
+
+The repository `config` script links against `sqlite3`, so your build
+environment must provide the SQLite development library.
+
+Development container details
+-----------------------------
 The repository includes a containerized build environment with:
 
 - Debian-based build tooling for NGINX modules
 - downloaded NGINX source in `/opt/nginx-src/nginx-$NGINX_VERSION`
 - `Test::Nginx` installed from `openresty/test-nginx`
-
-Open a shell in the container with the repository mounted at `/workspace`:
-
-    make shell
-
-Configure and build NGINX with this module in your current environment. Use a
-shell inside the development container if you want the containerized toolchain.
-
-    make nginx-build
-
-Print the resulting `nginx -V`:
-
-    make nginx-version
 
 Format the module source file:
 
