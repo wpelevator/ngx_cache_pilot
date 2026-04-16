@@ -575,6 +575,7 @@ It provides separate locations for these behaviors:
 - cache-tag soft purge by `Surrogate-Key` or `Cache-Tag` (`/tagged/...`)
 - watched-location plain `PURGE` fallback (`/tagged/plain`)
 - custom tag headers with an isolated cache zone (`/tagged_custom`)
+- cache metrics via `cache_purge_stats` (`/_stats`)
 
 Start it inside the container after building nginx:
 
