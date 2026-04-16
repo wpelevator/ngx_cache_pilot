@@ -552,7 +552,38 @@ make nginx-version
 ```bash
 make format
 make test
+make bench-quick
 ```
+
+### Benchmark suite
+
+The repository includes a container-only benchmark harness under `bench/` for measuring purge behavior under concurrent GET load. It runs four scenarios against the built module with no extra container dependencies:
+
+- exact-key soft purge
+- wildcard soft purge
+- cache-tag soft purge with SQLite index
+- cache-tag soft purge with Redis index
+
+Each scenario warms 1000 cached objects, starts 50 keep-alive GET workers, then runs a sequential PURGE worker in parallel while collecting:
+
+- GET throughput and latency percentiles
+- cache hit rate and `X-Cache-Status` breakdown
+- purge throughput and latency percentiles
+- `cache_purge_stats` snapshots before and after the run
+
+Run the quick suite after building nginx:
+
+```bash
+make shell
+make nginx-build
+make bench-quick
+make bench
+cat /workspace/bench/results/latest/summary.txt
+```
+
+Results are written under `bench/results/<timestamp>/` with one JSON file per scenario plus `summary.json` and `summary.txt`. The `bench/results/latest` symlink points at the most recent run. During the Redis scenario, `bench/bench.pl` starts a local `redis-server` on `127.0.0.1:16379`, uses `bench/nginx_redis.conf`, and shuts Redis down during teardown.
+
+The benchmark suite now uses two explicit nginx templates: `bench/nginx.conf` for SQLite-backed scenarios and `bench/nginx_redis.conf` for Redis-backed scenarios. If more benchmark layouts are added later, drop another `*.conf` template into `bench/`, assign scenarios to it in `bench/bench.pl`, and the runner will restart nginx when either the template or backend changes. You can also override the template for a whole run with `--config-template <name-or-path>`.
 
 ### Docker Validation Config
 
