@@ -157,6 +157,10 @@ typedef struct {
     ngx_rbtree_node_t             zone_sentinel;
     ngx_rbtree_t                  watch_index;
     ngx_rbtree_node_t             watch_sentinel;
+#if (NGX_CACHE_PURGE_THREADS)
+    ngx_pool_t                   *retry_pool;
+    ngx_array_t                  *retry_pending_ops;
+#endif
 } ngx_http_cache_tag_watch_runtime_t;
 
 typedef struct {

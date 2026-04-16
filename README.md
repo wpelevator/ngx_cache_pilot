@@ -105,6 +105,7 @@ cd nginx-1.28.1
 
 ./configure \
     --with-compat \
+    --with-threads \
     --with-ld-opt="-lsqlite3" \
     --add-dynamic-module=../ngx_cache_purge
 
@@ -120,6 +121,7 @@ If you are building your own NGINX binary from source, point `./configure` at th
 ```bash
 ./configure \
     --with-debug \
+    --with-threads \
     --with-http_ssl_module \
     --add-module=/path/to/ngx_cache_purge
 make
@@ -290,6 +292,7 @@ When `cache_tag_index` and `cache_tag_watch` are enabled:
 - `Cache-Tag` values are parsed as comma- or whitespace-delimited tags
 - the module stores a tag-to-cache-file index in SQLite or Redis
 - on Linux, a worker-owned `inotify` watcher keeps the index up to date as cache files are created, replaced, or removed
+- startup cache-tree bootstrap and wildcard purge scans run in an nginx thread pool when nginx is built with `--with-threads`
 
 To purge by tag, send a normal `PURGE` request and include one or more tag headers:
 
@@ -314,7 +317,7 @@ Notes:
 - Supported tag index backends are SQLite and Redis.
 - Redis support currently targets a single instance over TCP or a Unix socket, with optional password auth and database selection.
 - The cache watcher keeps the index fresh during normal operation.
-- A cold-start bootstrap fallback scans the configured cache tree if a tag purge arrives before a zone has been indexed.
+- Initial cache-tag bootstrap now runs asynchronously in a worker thread after startup. Until that finishes, tag purges only see whatever index data is already persisted.
 
 ## Configuration Examples
 

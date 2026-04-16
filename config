@@ -14,6 +14,10 @@ if [ "$HTTP_UWSGI" = "YES" ]; then
     have=NGX_HTTP_UWSGI . auto/have
 fi
 
+if [ "$NGX_THREADS" = "YES" ]; then
+    have=NGX_CACHE_PURGE_THREADS . auto/have
+fi
+
 ngx_addon_name=ngx_http_cache_purge_module
 CACHE_PURGE_SRCS="$ngx_addon_dir/ngx_cache_purge_module.c \
 $ngx_addon_dir/ngx_cache_purge_tag.c \

@@ -20,6 +20,11 @@ static ngx_http_cache_tag_watch_t *ngx_http_cache_tag_find_watch(int wd);
 static ngx_int_t ngx_http_cache_tag_remove_watch(int wd);
 static ngx_int_t ngx_http_cache_tag_add_watch(ngx_http_cache_tag_zone_t *zone,
         ngx_str_t *path, ngx_cycle_t *cycle);
+static ngx_int_t ngx_http_cache_tag_scan_recursive(
+    ngx_http_cache_tag_store_t *store, ngx_http_cache_tag_zone_t *zone,
+    ngx_str_t *path, ngx_pool_t *pool, ngx_array_t *watch_paths,
+    ngx_uint_t index_mode, ngx_array_t *pending_ops, time_t min_mtime,
+    ngx_cycle_t *cycle, ngx_log_t *log);
 static ngx_int_t ngx_http_cache_tag_add_watch_recursive(
     ngx_http_cache_tag_store_t *store, ngx_http_cache_tag_zone_t *zone,
     ngx_str_t *path, ngx_cycle_t *cycle, ngx_uint_t index_mode,
@@ -36,10 +41,34 @@ static ngx_int_t ngx_http_cache_tag_queue_drain(ngx_pool_t *pool,
         ngx_array_t *pending_ops, ngx_log_t *log);
 static ngx_int_t ngx_http_cache_tag_apply_pending_ops(
     ngx_http_cache_tag_store_t *store, ngx_array_t *pending_ops, ngx_log_t *log);
+#if (NGX_CACHE_PURGE_THREADS)
+static ngx_thread_pool_t *ngx_http_cache_tag_thread_pool(ngx_cycle_t *cycle);
+static void ngx_http_cache_tag_bootstrap_thread(void *data, ngx_log_t *log);
+static void ngx_http_cache_tag_bootstrap_completion(ngx_event_t *ev);
+static ngx_int_t ngx_http_cache_tag_start_bootstrap_task(ngx_cycle_t *cycle,
+        ngx_http_cache_purge_main_conf_t *pmcf);
+#endif
 
 #define NGX_HTTP_CACHE_TAG_INDEX_NONE    0
 #define NGX_HTTP_CACHE_TAG_INDEX_DIRECT  1
 #define NGX_HTTP_CACHE_TAG_INDEX_PENDING 2
+
+#if (NGX_CACHE_PURGE_THREADS)
+
+typedef struct {
+    ngx_http_cache_tag_zone_t   *zone;
+    ngx_str_t                    path;
+} ngx_http_cache_tag_bootstrap_watch_path_t;
+
+typedef struct {
+    ngx_cycle_t                 *cycle;
+    ngx_http_cache_purge_main_conf_t *pmcf;
+    ngx_pool_t                  *pool;
+    ngx_array_t                 *watch_paths;
+    ngx_int_t                    rc;
+} ngx_http_cache_tag_bootstrap_ctx_t;
+
+#endif
 
 ngx_int_t
 ngx_http_cache_tag_queue_init_conf(ngx_conf_t *cf,
@@ -419,20 +448,40 @@ ngx_http_cache_tag_add_watch(ngx_http_cache_tag_zone_t *zone, ngx_str_t *path,
 }
 
 static ngx_int_t
-ngx_http_cache_tag_add_watch_recursive(ngx_http_cache_tag_store_t *store,
-                                       ngx_http_cache_tag_zone_t *zone,
-                                       ngx_str_t *path, ngx_cycle_t *cycle,
-                                       ngx_uint_t index_mode,
-                                       ngx_array_t *pending_ops,
-                                       time_t min_mtime) {
-    DIR            *dir;
-    struct dirent  *entry;
-    ngx_str_t       child;
-    ngx_file_info_t fi;
+ngx_http_cache_tag_scan_recursive(ngx_http_cache_tag_store_t *store,
+                                  ngx_http_cache_tag_zone_t *zone,
+                                  ngx_str_t *path, ngx_pool_t *pool,
+                                  ngx_array_t *watch_paths,
+                                  ngx_uint_t index_mode,
+                                  ngx_array_t *pending_ops,
+                                  time_t min_mtime, ngx_cycle_t *cycle,
+                                  ngx_log_t *log) {
+    DIR                                     *dir;
+    struct dirent                           *entry;
+    ngx_str_t                                child;
+    ngx_file_info_t                          fi;
+#if (NGX_CACHE_PURGE_THREADS)
+    ngx_http_cache_tag_bootstrap_watch_path_t *watch_path;
+#endif
 
-    if (ngx_http_cache_tag_add_watch(zone, path, cycle) == NGX_ERROR) {
-        return NGX_ERROR;
+#if (NGX_CACHE_PURGE_THREADS)
+    if (watch_paths != NULL) {
+        watch_path = ngx_array_push(watch_paths);
+        if (watch_path == NULL) {
+            return NGX_ERROR;
+        }
+
+        watch_path->zone = zone;
+        watch_path->path.len = path->len;
+        watch_path->path.data = ngx_pnalloc(pool, path->len + 1);
+        if (watch_path->path.data == NULL) {
+            return NGX_ERROR;
+        }
+
+        ngx_memcpy(watch_path->path.data, path->data, path->len);
+        watch_path->path.data[path->len] = '\0';
     }
+#endif
 
     dir = opendir((const char *) path->data);
     if (dir == NULL) {
@@ -445,15 +494,23 @@ ngx_http_cache_tag_add_watch_recursive(ngx_http_cache_tag_store_t *store,
             continue;
         }
 
-        if (ngx_http_cache_tag_join_path(cycle->pool, path, entry->d_name, &child)
+        if (ngx_http_cache_tag_join_path(pool, path, entry->d_name, &child)
                 != NGX_OK) {
             closedir(dir);
             return NGX_ERROR;
         }
 
         if (entry->d_type == DT_DIR) {
-            if (ngx_http_cache_tag_add_watch_recursive(store, zone, &child, cycle,
-                    index_mode, pending_ops, min_mtime) == NGX_ERROR) {
+            if (cycle != NULL
+                    && ngx_http_cache_tag_add_watch(zone, &child, cycle)
+                       == NGX_ERROR) {
+                closedir(dir);
+                return NGX_ERROR;
+            }
+
+            if (ngx_http_cache_tag_scan_recursive(store, zone, &child, pool,
+                    watch_paths, index_mode, pending_ops, min_mtime, cycle, log)
+                    == NGX_ERROR) {
                 closedir(dir);
                 return NGX_ERROR;
             }
@@ -476,7 +533,7 @@ ngx_http_cache_tag_add_watch_recursive(ngx_http_cache_tag_store_t *store,
 
         if (index_mode == NGX_HTTP_CACHE_TAG_INDEX_DIRECT) {
             if (ngx_http_cache_tag_store_process_file(store, &zone->zone_name,
-                    &child, zone->headers, cycle->log) == NGX_ERROR) {
+                    &child, zone->headers, log) != NGX_OK) {
                 closedir(dir);
                 return NGX_ERROR;
             }
@@ -484,7 +541,7 @@ ngx_http_cache_tag_add_watch_recursive(ngx_http_cache_tag_store_t *store,
         }
 
         if (index_mode == NGX_HTTP_CACHE_TAG_INDEX_PENDING
-                && ngx_http_cache_tag_pending_op_set(cycle->pool, pending_ops,
+                && ngx_http_cache_tag_pending_op_set(pool, pending_ops,
                         &zone->zone_name, zone->cache, &child,
                         NGX_HTTP_CACHE_TAG_OP_REPLACE) != NGX_OK) {
             closedir(dir);
@@ -498,6 +555,21 @@ ngx_http_cache_tag_add_watch_recursive(ngx_http_cache_tag_store_t *store,
 }
 
 static ngx_int_t
+ngx_http_cache_tag_add_watch_recursive(ngx_http_cache_tag_store_t *store,
+                                       ngx_http_cache_tag_zone_t *zone,
+                                       ngx_str_t *path, ngx_cycle_t *cycle,
+                                       ngx_uint_t index_mode,
+                                       ngx_array_t *pending_ops,
+                                        time_t min_mtime) {
+    if (ngx_http_cache_tag_add_watch(zone, path, cycle) == NGX_ERROR) {
+        return NGX_ERROR;
+    }
+
+    return ngx_http_cache_tag_scan_recursive(store, zone, path, cycle->pool, NULL,
+            index_mode, pending_ops, min_mtime, cycle, cycle->log);
+}
+
+static ngx_int_t
 ngx_http_cache_tag_process_events(ngx_cycle_t *cycle) {
     u_char                      buf[8192];
     ssize_t                     n;
@@ -508,16 +580,23 @@ ngx_http_cache_tag_process_events(ngx_cycle_t *cycle) {
     ngx_str_t                   path;
     ngx_pool_t                 *pool;
     ngx_array_t                *pending_ops;
+    ngx_int_t                   rc;
 
-    pool = ngx_create_pool(4096, cycle->log);
-    if (pool == NULL) {
-        return NGX_ERROR;
-    }
+    pool = ngx_http_cache_tag_watch_runtime.retry_pool;
+    pending_ops = ngx_http_cache_tag_watch_runtime.retry_pending_ops;
 
-    pending_ops = ngx_array_create(pool, 8, sizeof(ngx_http_cache_tag_pending_op_t));
-    if (pending_ops == NULL) {
-        ngx_destroy_pool(pool);
-        return NGX_ERROR;
+    if (pool == NULL || pending_ops == NULL) {
+        pool = ngx_create_pool(4096, cycle->log);
+        if (pool == NULL) {
+            return NGX_ERROR;
+        }
+
+        pending_ops = ngx_array_create(pool, 8,
+                                       sizeof(ngx_http_cache_tag_pending_op_t));
+        if (pending_ops == NULL) {
+            ngx_destroy_pool(pool);
+            return NGX_ERROR;
+        }
     }
 
     for (;;) {
@@ -589,16 +668,43 @@ ngx_http_cache_tag_process_events(ngx_cycle_t *cycle) {
     }
 
     if (ngx_http_cache_tag_queue_drain(pool, pending_ops, cycle->log) != NGX_OK) {
+        if (pool == ngx_http_cache_tag_watch_runtime.retry_pool) {
+            ngx_http_cache_tag_watch_runtime.retry_pool = NULL;
+            ngx_http_cache_tag_watch_runtime.retry_pending_ops = NULL;
+        }
         ngx_destroy_pool(pool);
         return NGX_ERROR;
     }
 
-    if (pending_ops->nelts > 0
-            && ngx_http_cache_tag_apply_pending_ops(
-                ngx_http_cache_tag_store_writer(), pending_ops, cycle->log)
-            != NGX_OK) {
+    if (pending_ops->nelts == 0) {
+        if (pool == ngx_http_cache_tag_watch_runtime.retry_pool) {
+            ngx_http_cache_tag_watch_runtime.retry_pool = NULL;
+            ngx_http_cache_tag_watch_runtime.retry_pending_ops = NULL;
+        }
+        ngx_destroy_pool(pool);
+        return NGX_OK;
+    }
+
+    rc = ngx_http_cache_tag_apply_pending_ops(ngx_http_cache_tag_store_writer(),
+            pending_ops, cycle->log);
+    if (rc == NGX_AGAIN) {
+        ngx_http_cache_tag_watch_runtime.retry_pool = pool;
+        ngx_http_cache_tag_watch_runtime.retry_pending_ops = pending_ops;
+        return NGX_AGAIN;
+    }
+
+    if (rc != NGX_OK) {
+        if (pool == ngx_http_cache_tag_watch_runtime.retry_pool) {
+            ngx_http_cache_tag_watch_runtime.retry_pool = NULL;
+            ngx_http_cache_tag_watch_runtime.retry_pending_ops = NULL;
+        }
         ngx_destroy_pool(pool);
         return NGX_ERROR;
+    }
+
+    if (pool == ngx_http_cache_tag_watch_runtime.retry_pool) {
+        ngx_http_cache_tag_watch_runtime.retry_pool = NULL;
+        ngx_http_cache_tag_watch_runtime.retry_pending_ops = NULL;
     }
 
     ngx_destroy_pool(pool);
@@ -608,12 +714,14 @@ ngx_http_cache_tag_process_events(ngx_cycle_t *cycle) {
 
 static void
 ngx_http_cache_tag_timer_handler(ngx_event_t *ev) {
+    ngx_int_t  rc;
+
     if (ngx_exiting || ngx_quit || ngx_terminate) {
         return;
     }
 
-    if (ngx_http_cache_tag_process_events(ngx_http_cache_tag_watch_runtime.cycle)
-            != NGX_OK) {
+    rc = ngx_http_cache_tag_process_events(ngx_http_cache_tag_watch_runtime.cycle);
+    if (rc != NGX_OK && rc != NGX_AGAIN) {
         ngx_log_error(NGX_LOG_ERR, ngx_http_cache_tag_watch_runtime.cycle->log, 0,
                       "cache_tag watcher processing failed");
     }
@@ -621,13 +729,215 @@ ngx_http_cache_tag_timer_handler(ngx_event_t *ev) {
     ngx_add_timer(ev, 250);
 }
 
+#if (NGX_CACHE_PURGE_THREADS)
+
+static ngx_thread_pool_t *
+ngx_http_cache_tag_thread_pool(ngx_cycle_t *cycle) {
+    static ngx_str_t  name = ngx_string("default");
+    ngx_thread_pool_t *tp;
+
+    tp = ngx_thread_pool_get(cycle, &name);
+    if (tp == NULL) {
+        ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
+                      "thread pool \"%V\" not found", &name);
+    }
+
+    return tp;
+}
+
+static void
+ngx_http_cache_tag_bootstrap_thread(void *data, ngx_log_t *log) {
+    ngx_http_cache_tag_bootstrap_ctx_t  *ctx;
+    ngx_http_cache_tag_zone_t           *zone;
+    ngx_http_cache_tag_store_t          *writer;
+    ngx_http_cache_tag_zone_state_t      state;
+    ngx_uint_t                           i;
+
+    ctx = data;
+    ctx->rc = NGX_ERROR;
+
+    writer = ngx_http_cache_tag_store_open_writer(ctx->pmcf, log);
+    if (writer == NULL) {
+        return;
+    }
+
+    zone = ctx->pmcf->zones->elts;
+    for (i = 0; i < ctx->pmcf->zones->nelts; i++) {
+        if (zone[i].cache == NULL || zone[i].cache->path == NULL) {
+            continue;
+        }
+
+        if (ngx_http_cache_tag_store_get_zone_state(writer, &zone[i].zone_name,
+                &state, log) != NGX_OK) {
+            goto done;
+        }
+
+        if (state.bootstrap_complete) {
+            ngx_log_error(NGX_LOG_NOTICE, log, 0,
+                          "cache_tag reusing persisted index for zone \"%V\"",
+                          &zone[i].zone_name);
+            if (ngx_http_cache_tag_scan_recursive(writer, &zone[i],
+                    &zone[i].cache->path->name, ctx->pool, ctx->watch_paths,
+                    NGX_HTTP_CACHE_TAG_INDEX_DIRECT, NULL,
+                    state.last_bootstrap_at, NULL, log) != NGX_OK) {
+                goto done;
+            }
+
+            state.last_bootstrap_at = ngx_time();
+            if (ngx_http_cache_tag_store_set_zone_state(writer, &zone[i].zone_name,
+                    &state, log) != NGX_OK) {
+                goto done;
+            }
+
+            continue;
+        }
+
+        ngx_log_error(NGX_LOG_NOTICE, log, 0,
+                      "cache_tag bootstrap zone \"%V\"", &zone[i].zone_name);
+
+        if (ngx_http_cache_tag_store_begin_batch(writer, log) != NGX_OK) {
+            goto done;
+        }
+
+        if (ngx_http_cache_tag_scan_recursive(writer, &zone[i],
+                &zone[i].cache->path->name, ctx->pool, ctx->watch_paths,
+                NGX_HTTP_CACHE_TAG_INDEX_DIRECT, NULL, 0, NULL, log) != NGX_OK) {
+            ngx_http_cache_tag_store_rollback_batch(writer, log);
+            goto done;
+        }
+
+        state.bootstrap_complete = 1;
+        state.last_bootstrap_at = ngx_time();
+        if (ngx_http_cache_tag_store_set_zone_state(writer, &zone[i].zone_name,
+                &state, log) != NGX_OK) {
+            ngx_http_cache_tag_store_rollback_batch(writer, log);
+            goto done;
+        }
+
+        if (ngx_http_cache_tag_store_commit_batch(writer, log) != NGX_OK) {
+            ngx_http_cache_tag_store_rollback_batch(writer, log);
+            goto done;
+        }
+    }
+
+    ctx->rc = NGX_OK;
+
+done:
+    ngx_http_cache_tag_store_close(writer);
+}
+
+static void
+ngx_http_cache_tag_bootstrap_completion(ngx_event_t *ev) {
+    ngx_http_cache_tag_bootstrap_ctx_t         *ctx;
+    ngx_http_cache_tag_bootstrap_watch_path_t  *watch_path;
+    ngx_uint_t                                  i;
+
+    ctx = ev->data;
+
+    if (ev->timedout) {
+        ngx_log_error(NGX_LOG_ALERT, ctx->cycle->log, 0,
+                      "cache_tag bootstrap took too long");
+        ev->timedout = 0;
+        return;
+    }
+
+    if (ev->timer_set) {
+        ngx_del_timer(ev);
+    }
+
+    if (ctx->rc != NGX_OK) {
+        ngx_log_error(NGX_LOG_ERR, ctx->cycle->log, 0,
+                      "cache_tag bootstrap failed");
+        goto done;
+    }
+
+    watch_path = ctx->watch_paths->elts;
+    for (i = 0; i < ctx->watch_paths->nelts; i++) {
+        if (ngx_http_cache_tag_add_watch(watch_path[i].zone, &watch_path[i].path,
+                ctx->cycle) == NGX_ERROR) {
+            ngx_log_error(NGX_LOG_ERR, ctx->cycle->log, 0,
+                          "cache_tag bootstrap watch registration failed");
+            goto done;
+        }
+    }
+
+    ngx_http_cache_tag_watch_runtime.timer.handler =
+        ngx_http_cache_tag_timer_handler;
+    ngx_http_cache_tag_watch_runtime.timer.log = ctx->cycle->log;
+    ngx_http_cache_tag_watch_runtime.timer.data = NULL;
+    ngx_http_cache_tag_watch_runtime.timer.cancelable = 1;
+    ngx_add_timer(&ngx_http_cache_tag_watch_runtime.timer, 250);
+    ngx_http_cache_tag_watch_runtime.active = 1;
+
+done:
+    ngx_http_cache_tag_watch_runtime.initialized = 1;
+    if (ctx->pool != NULL) {
+        ngx_destroy_pool(ctx->pool);
+        ctx->pool = NULL;
+    }
+}
+
+static ngx_int_t
+ngx_http_cache_tag_start_bootstrap_task(ngx_cycle_t *cycle,
+                                        ngx_http_cache_purge_main_conf_t *pmcf) {
+    ngx_thread_pool_t                  *tp;
+    ngx_thread_task_t                  *task;
+    ngx_http_cache_tag_bootstrap_ctx_t *ctx;
+
+    tp = ngx_http_cache_tag_thread_pool(cycle);
+    if (tp == NULL) {
+        return NGX_ERROR;
+    }
+
+    task = ngx_thread_task_alloc(cycle->pool,
+                                 sizeof(ngx_http_cache_tag_bootstrap_ctx_t));
+    if (task == NULL) {
+        return NGX_ERROR;
+    }
+
+    ctx = task->ctx;
+    ctx->cycle = cycle;
+    ctx->pmcf = pmcf;
+    ctx->pool = ngx_create_pool(16384, cycle->log);
+    if (ctx->pool == NULL) {
+        return NGX_ERROR;
+    }
+
+    ctx->watch_paths = ngx_array_create(ctx->pool, 16,
+            sizeof(ngx_http_cache_tag_bootstrap_watch_path_t));
+    if (ctx->watch_paths == NULL) {
+        ngx_destroy_pool(ctx->pool);
+        ctx->pool = NULL;
+        return NGX_ERROR;
+    }
+
+    ctx->rc = NGX_ERROR;
+    task->handler = ngx_http_cache_tag_bootstrap_thread;
+    task->event.data = ctx;
+    task->event.handler = ngx_http_cache_tag_bootstrap_completion;
+
+    if (ngx_thread_task_post(tp, task) != NGX_OK) {
+        ngx_destroy_pool(ctx->pool);
+        ctx->pool = NULL;
+        return NGX_ERROR;
+    }
+
+    ngx_add_timer(&task->event, 60000);
+
+    return NGX_OK;
+}
+
+#endif
+
 ngx_int_t
 ngx_http_cache_tag_init_runtime(ngx_cycle_t *cycle,
                                 ngx_http_cache_purge_main_conf_t *pmcf) {
+#if !(NGX_CACHE_PURGE_THREADS)
     ngx_http_cache_tag_zone_t        *zone;
     ngx_http_cache_tag_store_t       *writer;
     ngx_http_cache_tag_zone_state_t   state;
     ngx_uint_t                        i;
+#endif
 
     ngx_memzero(&ngx_http_cache_tag_watch_runtime,
                 sizeof(ngx_http_cache_tag_watch_runtime));
@@ -667,6 +977,9 @@ ngx_http_cache_tag_init_runtime(ngx_cycle_t *cycle,
         return NGX_ERROR;
     }
 
+#if (NGX_CACHE_PURGE_THREADS)
+    return ngx_http_cache_tag_start_bootstrap_task(cycle, pmcf);
+#else
     writer = ngx_http_cache_tag_store_writer();
     zone = pmcf->zones->elts;
     for (i = 0; i < pmcf->zones->nelts; i++) {
@@ -715,16 +1028,21 @@ ngx_http_cache_tag_init_runtime(ngx_cycle_t *cycle,
     ngx_http_cache_tag_watch_runtime.active = 1;
 
     return NGX_OK;
+#endif
 }
 
 ngx_int_t
 ngx_http_cache_tag_flush_pending(ngx_cycle_t *cycle) {
+    ngx_int_t  rc;
+
     if (!ngx_http_cache_tag_watch_runtime.owner
             || !ngx_http_cache_tag_watch_runtime.active) {
         return NGX_OK;
     }
 
-    return ngx_http_cache_tag_process_events(cycle);
+    rc = ngx_http_cache_tag_process_events(cycle);
+
+    return rc == NGX_AGAIN ? NGX_OK : rc;
 }
 
 void
@@ -736,6 +1054,12 @@ ngx_http_cache_tag_shutdown_runtime(void) {
 
     if (ngx_http_cache_tag_watch_runtime.timer.timer_set) {
         ngx_del_timer(&ngx_http_cache_tag_watch_runtime.timer);
+    }
+
+    if (ngx_http_cache_tag_watch_runtime.retry_pool != NULL) {
+        ngx_destroy_pool(ngx_http_cache_tag_watch_runtime.retry_pool);
+        ngx_http_cache_tag_watch_runtime.retry_pool = NULL;
+        ngx_http_cache_tag_watch_runtime.retry_pending_ops = NULL;
     }
 
     if (ngx_http_cache_tag_watch_runtime.inotify_fd > 0) {
@@ -989,15 +1313,26 @@ ngx_http_cache_tag_apply_pending_ops(ngx_http_cache_tag_store_t *store,
         return NGX_OK;
     }
 
-    if (ngx_http_cache_tag_store_begin_batch(store, log) != NGX_OK) {
+    switch (ngx_http_cache_tag_store_begin_batch(store, log)) {
+    case NGX_OK:
+        break;
+    case NGX_AGAIN:
+        return NGX_AGAIN;
+    default:
         return NGX_ERROR;
     }
 
     op = pending_ops->elts;
     for (i = 0; i < pending_ops->nelts; i++) {
         if (op[i].operation == NGX_HTTP_CACHE_TAG_OP_DELETE) {
-            if (ngx_http_cache_tag_store_delete_file(store, &op[i].zone_name,
-                    &op[i].path, log) != NGX_OK) {
+            switch (ngx_http_cache_tag_store_delete_file(store, &op[i].zone_name,
+                    &op[i].path, log)) {
+            case NGX_OK:
+                break;
+            case NGX_AGAIN:
+                ngx_http_cache_tag_store_rollback_batch(store, log);
+                return NGX_AGAIN;
+            default:
                 ngx_http_cache_tag_store_rollback_batch(store, log);
                 return NGX_ERROR;
             }
@@ -1013,14 +1348,26 @@ ngx_http_cache_tag_apply_pending_ops(ngx_http_cache_tag_store_t *store,
             return NGX_ERROR;
         }
 
-        if (ngx_http_cache_tag_store_process_file(store, &op[i].zone_name,
-                &op[i].path, zone->headers, log) != NGX_OK) {
+        switch (ngx_http_cache_tag_store_process_file(store, &op[i].zone_name,
+                &op[i].path, zone->headers, log)) {
+        case NGX_OK:
+            break;
+        case NGX_AGAIN:
+            ngx_http_cache_tag_store_rollback_batch(store, log);
+            return NGX_AGAIN;
+        default:
             ngx_http_cache_tag_store_rollback_batch(store, log);
             return NGX_ERROR;
         }
     }
 
-    if (ngx_http_cache_tag_store_commit_batch(store, log) != NGX_OK) {
+    switch (ngx_http_cache_tag_store_commit_batch(store, log)) {
+    case NGX_OK:
+        break;
+    case NGX_AGAIN:
+        ngx_http_cache_tag_store_rollback_batch(store, log);
+        return NGX_AGAIN;
+    default:
         ngx_http_cache_tag_store_rollback_batch(store, log);
         return NGX_ERROR;
     }

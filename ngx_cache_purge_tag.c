@@ -331,7 +331,10 @@ ngx_http_cache_tag_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache,
     ngx_int_t                         rc, purged;
     ngx_int_t                         soft;
 #if (NGX_LINUX)
-    ngx_http_cache_tag_store_t       *reader, *writer;
+    ngx_http_cache_tag_store_t       *reader;
+#if !(NGX_CACHE_PURGE_THREADS)
+    ngx_http_cache_tag_store_t       *writer;
+#endif
 #endif
 
     http_ctx = (ngx_http_conf_ctx_t *) ngx_get_conf(ngx_cycle->conf_ctx,
@@ -387,6 +390,11 @@ ngx_http_cache_tag_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache,
     }
 
     if (paths->nelts == 0 && !state.bootstrap_complete && cache->path != NULL) {
+#if (NGX_CACHE_PURGE_THREADS)
+        ngx_log_error(NGX_LOG_NOTICE, r->connection->log, 0,
+                      "cache_tag bootstrap still in progress for zone \"%V\"",
+                      &zone->zone_name);
+#else
         writer = ngx_http_cache_tag_is_owner()
                  ? ngx_http_cache_tag_store_writer()
                  : ngx_http_cache_tag_store_open_writer(pmcf,
@@ -415,6 +423,7 @@ ngx_http_cache_tag_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache,
                 != NGX_OK) {
             return NGX_ERROR;
         }
+#endif
     }
 
     purged = 0;

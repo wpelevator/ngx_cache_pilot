@@ -2,6 +2,8 @@
 
 #if (NGX_LINUX)
 
+#define NGX_HTTP_CACHE_TAG_SQLITE_BUSY_TIMEOUT  50
+
 static void ngx_http_cache_tag_store_sqlite_close(
     ngx_http_cache_tag_store_t *store);
 static ngx_int_t ngx_http_cache_tag_store_sqlite_begin_batch(
@@ -40,6 +42,7 @@ static int ngx_http_cache_tag_store_sqlite_step(sqlite3_stmt *stmt, sqlite3 *db,
         ngx_log_t *log, const char *action);
 static void ngx_http_cache_tag_store_sqlite_finalize(
     ngx_http_cache_tag_store_t *store);
+static ngx_flag_t ngx_http_cache_tag_store_sqlite_busy(int rc);
 
 static const ngx_http_cache_tag_store_ops_t ngx_http_cache_tag_store_sqlite_ops = {
     ngx_http_cache_tag_store_sqlite_close,
@@ -163,11 +166,13 @@ ngx_http_cache_tag_store_sqlite_replace_file_tags(ngx_http_cache_tag_store_t *st
         ngx_array_t *tags, ngx_log_t *log) {
     ngx_str_t  *tag;
     ngx_uint_t  i;
+    ngx_int_t   delete_rc;
     int         rc;
 
-    if (ngx_http_cache_tag_store_sqlite_delete_file(store, zone_name, path, log)
-            != NGX_OK) {
-        return NGX_ERROR;
+    delete_rc = ngx_http_cache_tag_store_sqlite_delete_file(store, zone_name, path,
+                log);
+    if (delete_rc != NGX_OK) {
+        return delete_rc;
     }
 
     if (tags == NULL || tags->nelts == 0) {
@@ -195,6 +200,10 @@ ngx_http_cache_tag_store_sqlite_replace_file_tags(ngx_http_cache_tag_store_t *st
         rc = ngx_http_cache_tag_store_sqlite_step(
                  store->u.sqlite.stmt.insert_entry, store->u.sqlite.db, log,
                  "insert");
+        if (ngx_http_cache_tag_store_sqlite_busy(rc)) {
+            return NGX_AGAIN;
+        }
+
         if (rc != SQLITE_DONE) {
             ngx_log_error(NGX_LOG_ERR, log, 0,
                           "sqlite insert failed: %s",
@@ -223,6 +232,10 @@ ngx_http_cache_tag_store_sqlite_delete_file(ngx_http_cache_tag_store_t *store,
 
     rc = ngx_http_cache_tag_store_sqlite_step(store->u.sqlite.stmt.delete_file,
             store->u.sqlite.db, log, "delete");
+    if (ngx_http_cache_tag_store_sqlite_busy(rc)) {
+        return NGX_AGAIN;
+    }
+
     if (rc != SQLITE_DONE) {
         ngx_log_error(NGX_LOG_ERR, log, 0, "sqlite delete failed: %s",
                       sqlite3_errmsg(store->u.sqlite.db));
@@ -418,6 +431,10 @@ ngx_http_cache_tag_store_sqlite_set_zone_state(ngx_http_cache_tag_store_t *store
     rc = ngx_http_cache_tag_store_sqlite_step(store->u.sqlite.stmt.set_zone_state,
             store->u.sqlite.db, log,
             "zone-state write");
+    if (ngx_http_cache_tag_store_sqlite_busy(rc)) {
+        return NGX_AGAIN;
+    }
+
     if (rc != SQLITE_DONE) {
         ngx_log_error(NGX_LOG_ERR, log, 0, "sqlite zone-state write failed: %s",
                       sqlite3_errmsg(store->u.sqlite.db));
@@ -461,7 +478,7 @@ ngx_http_cache_tag_store_sqlite_open_one(ngx_str_t *path, int flags,
     store->readonly = readonly;
     store->u.sqlite.db = db;
 
-    sqlite3_busy_timeout(db, 5000);
+    sqlite3_busy_timeout(db, NGX_HTTP_CACHE_TAG_SQLITE_BUSY_TIMEOUT);
 
     /* Raise the bind-parameter limit so large IN-clause queries (e.g.
      * purge by many tags) work.  The default is 999; 32766 is the hard
@@ -475,24 +492,14 @@ ngx_http_cache_tag_store_sqlite_open_one(ngx_str_t *path, int flags,
 static int
 ngx_http_cache_tag_store_sqlite_step(sqlite3_stmt *stmt, sqlite3 *db,
                                      ngx_log_t *log, const char *action) {
-    ngx_uint_t  attempt;
-    int         rc;
+    int  rc;
 
-    for (attempt = 0; attempt < 5; attempt++) {
-        rc = sqlite3_step(stmt);
-        if (rc != SQLITE_BUSY && rc != SQLITE_LOCKED) {
-            return rc;
-        }
+    rc = sqlite3_step(stmt);
 
-        if (attempt < 4) {
-            ngx_log_debug2(NGX_LOG_DEBUG_HTTP, log, 0,
-                           "sqlite %s busy, retry %ui", action, attempt + 1);
-            sqlite3_sleep((int)((attempt + 1) * 10));
-        }
+    if (ngx_http_cache_tag_store_sqlite_busy(rc)) {
+        ngx_log_debug2(NGX_LOG_DEBUG_HTTP, log, 0,
+                       "sqlite %s busy, code %d", action, rc);
     }
-
-    ngx_log_error(NGX_LOG_WARN, log, 0, "sqlite %s remained busy: %s",
-                  action, sqlite3_errmsg(db));
 
     return rc;
 }
@@ -558,9 +565,18 @@ static ngx_int_t
 ngx_http_cache_tag_store_sqlite_exec(ngx_http_cache_tag_store_t *store,
                                      const char *sql, ngx_log_t *log) {
     char  *errmsg;
+    int    rc;
 
     errmsg = NULL;
-    if (sqlite3_exec(store->u.sqlite.db, sql, NULL, NULL, &errmsg) != SQLITE_OK) {
+    rc = sqlite3_exec(store->u.sqlite.db, sql, NULL, NULL, &errmsg);
+    if (ngx_http_cache_tag_store_sqlite_busy(rc)) {
+        if (errmsg != NULL) {
+            sqlite3_free(errmsg);
+        }
+        return NGX_AGAIN;
+    }
+
+    if (rc != SQLITE_OK) {
         ngx_log_error(NGX_LOG_ERR, log, 0, "sqlite exec failed: %s",
                       errmsg != NULL ? errmsg : "unknown");
         if (errmsg != NULL) {
@@ -570,6 +586,11 @@ ngx_http_cache_tag_store_sqlite_exec(ngx_http_cache_tag_store_t *store,
     }
 
     return NGX_OK;
+}
+
+static ngx_flag_t
+ngx_http_cache_tag_store_sqlite_busy(int rc) {
+    return rc == SQLITE_BUSY || rc == SQLITE_LOCKED;
 }
 
 static void
