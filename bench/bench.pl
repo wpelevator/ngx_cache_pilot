@@ -124,11 +124,13 @@ END {
 }
 
 prepare_output_dir($options{out_dir});
+log_info('Preparing benchmark runtime state');
 cleanup_runtime_state();
 
 my $timestamp = strftime('%Y%m%d-%H%M%S', localtime());
 my $run_dir = "$options{out_dir}/$timestamp";
 make_path($run_dir);
+log_info("Writing run artifacts to $run_dir");
 
 my @results;
 my $active_runtime;
@@ -140,10 +142,16 @@ for my $scenario (@scenarios) {
     );
 
     if (!defined $active_runtime || $active_runtime ne $runtime_key) {
+        log_info(sprintf(
+            'Switching runtime: template=%s backend=%s',
+            $scenario->{config_template_name},
+            $scenario->{backend},
+        ));
         stop_nginx($current_conf) if defined $current_conf;
         $current_conf = undef;
 
         if ($redis_started) {
+            log_info('Stopping Redis sidecar');
             stop_redis();
             $redis_started = 0;
         }
@@ -151,25 +159,40 @@ for my $scenario (@scenarios) {
         cleanup_runtime_state();
 
         if ($scenario->{backend} eq 'redis') {
+            log_info('Starting Redis sidecar');
             start_redis();
             $redis_started = 1;
         }
 
         $current_conf = render_runtime_config($scenario);
 
+        log_info("Starting nginx with $current_conf");
         start_nginx($current_conf);
         wait_for_stats($stats_url);
+        log_info('Metrics endpoint is ready');
         $active_runtime = $runtime_key;
     }
 
+    log_info(sprintf(
+        'Running scenario %s (%ss)',
+        $scenario->{name},
+        $duration,
+    ));
     my $result = run_scenario($scenario, $duration, $run_dir, $stats_url);
     push @results, $result;
+    log_info(sprintf(
+        'Completed scenario %s: GET rps=%.1f purge_count=%d',
+        $scenario->{name},
+        $result->{get}->{rps} || 0,
+        $result->{purge}->{purge_count} || 0,
+    ));
 }
 
 stop_nginx($current_conf) if defined $current_conf;
 $current_conf = undef;
 
 if ($redis_started) {
+    log_info('Stopping Redis sidecar');
     stop_redis();
     $redis_started = 0;
 }
@@ -185,6 +208,7 @@ my $summary = {
 };
 
 if (defined $options{assert_file}) {
+    log_info("Evaluating assertions from $options{assert_file}");
     my @violations = evaluate_assertions($summary, $options{assert_file});
     $summary->{assertions} = {
         file       => $options{assert_file},
@@ -198,8 +222,10 @@ my $table = format_table(\@results);
 open my $summary_fh, '>', "$run_dir/summary.txt" or die "open(summary.txt): $!";
 print {$summary_fh} $table or die "write(summary.txt): $!";
 close $summary_fh or die "close(summary.txt): $!";
+log_info('Wrote summary artifacts');
 
 update_latest_symlink($options{out_dir}, $timestamp);
+log_info('Updated latest symlink');
 print $table;
 print_summary_json($summary);
 
@@ -211,12 +237,15 @@ if (defined $summary->{assertions}) {
 sub run_scenario {
     my ($scenario, $duration_s, $run_dir, $stats_endpoint) = @_;
 
+    log_info("Fetching baseline stats for $scenario->{name}");
     my $before = fetch_stats($stats_endpoint);
+    log_info("Warming cache for $scenario->{name}");
     warm_cache($scenario->{prefix}, $options{count});
 
     my $get_out = "$run_dir/$scenario->{name}_get.json";
     my $purge_out = "$run_dir/$scenario->{name}_purge.json";
 
+    log_info("Launching GET workers for $scenario->{name}");
     my $get_pid = fork_exec(
         $perl,
         $get_worker,
@@ -231,6 +260,7 @@ sub run_scenario {
 
     sleep(2);
 
+    log_info("Launching PURGE worker for $scenario->{name}");
     my @purge_command = (
         $perl,
         $purge_worker,
@@ -249,9 +279,11 @@ sub run_scenario {
 
     my $purge_pid = fork_exec(@purge_command);
 
+    log_info("Waiting for workers to finish for $scenario->{name}");
     wait_for_child($get_pid, 'GET worker');
     wait_for_child($purge_pid, 'PURGE worker');
 
+    log_info("Fetching final stats for $scenario->{name}");
     my $after = fetch_stats($stats_endpoint);
     my $get_result = read_json($get_out);
     my $purge_result = read_json($purge_out);
@@ -450,6 +482,12 @@ sub print_summary_json {
 
     print "\nSummary JSON\n";
     print JSON::PP->new->ascii->canonical->pretty->encode($summary);
+}
+
+sub log_info {
+    my ($message) = @_;
+    my $stamp = strftime('%H:%M:%S', localtime());
+    print "[$stamp] $message\n";
 }
 
 sub print_assertion_result {
