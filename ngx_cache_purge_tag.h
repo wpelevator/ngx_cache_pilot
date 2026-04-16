@@ -59,6 +59,11 @@ typedef struct {
     ngx_uint_t                    port;
     ngx_uint_t                    db;
     ngx_flag_t                    use_unix;
+    /* TCP address resolved once at config-parse time so that reconnects
+     * inside worker processes never call getaddrinfo() in the event loop. */
+    struct sockaddr_storage       resolved_addr;
+    socklen_t                     resolved_addrlen;
+    ngx_flag_t                    resolved;
 } ngx_http_cache_tag_redis_conf_t;
 
 typedef enum {
@@ -150,7 +155,7 @@ typedef struct {
     ngx_uint_t                    initialized;
     ngx_uint_t                    active;
     ngx_uint_t                    owner;
-    int                           inotify_fd;
+    ngx_connection_t             *inotify_conn;
     ngx_event_t                   timer;
     ngx_cycle_t                  *cycle;
     ngx_rbtree_t                  zone_index;

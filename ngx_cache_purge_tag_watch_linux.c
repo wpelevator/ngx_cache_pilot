@@ -362,7 +362,7 @@ ngx_http_cache_tag_remove_watch(int wd) {
         return NGX_OK;
     }
 
-    inotify_rm_watch(ngx_http_cache_tag_watch_runtime.inotify_fd, wd);
+    inotify_rm_watch(ngx_http_cache_tag_watch_runtime.inotify_conn->fd, wd);
     ngx_rbtree_delete(&ngx_http_cache_tag_watch_runtime.watch_index,
                       &watch->node);
 
@@ -375,11 +375,11 @@ ngx_http_cache_tag_add_watch(ngx_http_cache_tag_zone_t *zone, ngx_str_t *path,
     ngx_http_cache_tag_watch_t  *watch;
     int                          wd;
 
-    if (ngx_http_cache_tag_watch_runtime.inotify_fd <= 0) {
+    if (ngx_http_cache_tag_watch_runtime.inotify_conn == NULL) {
         return NGX_DECLINED;
     }
 
-    wd = inotify_add_watch(ngx_http_cache_tag_watch_runtime.inotify_fd,
+    wd = inotify_add_watch(ngx_http_cache_tag_watch_runtime.inotify_conn->fd,
                            (const char *) path->data,
                            IN_CREATE|IN_MOVED_TO|IN_CLOSE_WRITE|IN_DELETE
                            |IN_MOVED_FROM|IN_DELETE_SELF|IN_ONLYDIR);
@@ -521,7 +521,8 @@ ngx_http_cache_tag_process_events(ngx_cycle_t *cycle) {
     }
 
     for (;;) {
-        n = read(ngx_http_cache_tag_watch_runtime.inotify_fd, buf, sizeof(buf));
+        n = read(ngx_http_cache_tag_watch_runtime.inotify_conn->fd,
+                 buf, sizeof(buf));
         if (n == -1) {
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 break;
@@ -659,12 +660,21 @@ ngx_http_cache_tag_init_runtime(ngx_cycle_t *cycle,
         return NGX_OK;
     }
 
-    ngx_http_cache_tag_watch_runtime.inotify_fd = inotify_init1(
-                IN_NONBLOCK | IN_CLOEXEC);
-    if (ngx_http_cache_tag_watch_runtime.inotify_fd == -1) {
-        ngx_log_error(NGX_LOG_ERR, cycle->log, ngx_errno,
-                      "inotify_init1 failed");
-        return NGX_ERROR;
+    {
+        int inotify_fd = inotify_init1(IN_NONBLOCK | IN_CLOEXEC);
+        if (inotify_fd == -1) {
+            ngx_log_error(NGX_LOG_ERR, cycle->log, ngx_errno,
+                          "inotify_init1 failed");
+            return NGX_ERROR;
+        }
+
+        ngx_http_cache_tag_watch_runtime.inotify_conn =
+            ngx_get_connection(inotify_fd, cycle->log);
+        if (ngx_http_cache_tag_watch_runtime.inotify_conn == NULL) {
+            close(inotify_fd);
+            return NGX_ERROR;
+        }
+        ngx_http_cache_tag_watch_runtime.inotify_conn->log = cycle->log;
     }
 
     writer = ngx_http_cache_tag_store_writer();
@@ -738,8 +748,9 @@ ngx_http_cache_tag_shutdown_runtime(void) {
         ngx_del_timer(&ngx_http_cache_tag_watch_runtime.timer);
     }
 
-    if (ngx_http_cache_tag_watch_runtime.inotify_fd > 0) {
-        close(ngx_http_cache_tag_watch_runtime.inotify_fd);
+    if (ngx_http_cache_tag_watch_runtime.inotify_conn != NULL) {
+        ngx_close_connection(ngx_http_cache_tag_watch_runtime.inotify_conn);
+        ngx_http_cache_tag_watch_runtime.inotify_conn = NULL;
     }
 
     ngx_http_cache_tag_store_runtime_shutdown();

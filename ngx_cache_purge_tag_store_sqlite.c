@@ -449,13 +449,11 @@ ngx_http_cache_tag_store_sqlite_open_one(ngx_str_t *path, int flags,
         return NULL;
     }
 
-    store = ngx_alloc(sizeof(ngx_http_cache_tag_store_t), log);
+    store = ngx_pcalloc(ngx_cycle->pool, sizeof(ngx_http_cache_tag_store_t));
     if (store == NULL) {
         sqlite3_close(db);
         return NULL;
     }
-
-    ngx_memzero(store, sizeof(ngx_http_cache_tag_store_t));
     store->ops = &ngx_http_cache_tag_store_sqlite_ops;
     store->backend = NGX_HTTP_CACHE_TAG_BACKEND_SQLITE;
     store->readonly = readonly;

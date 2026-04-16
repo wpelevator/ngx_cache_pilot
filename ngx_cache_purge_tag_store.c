@@ -56,8 +56,10 @@ ngx_http_cache_tag_store_close(ngx_http_cache_tag_store_t *store) {
         return;
     }
 
+    /* Close the backing resource (socket / db handle).  The store struct
+     * itself is allocated from cycle->pool and freed automatically when
+     * the pool is destroyed on worker exit or config reload. */
     store->ops->close(store);
-    ngx_free(store);
 }
 
 ngx_int_t
