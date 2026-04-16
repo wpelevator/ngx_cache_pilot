@@ -9,7 +9,7 @@ use FindBin;
 use Getopt::Long qw(GetOptions);
 use JSON::PP ();
 use LWP::UserAgent;
-use POSIX qw(strftime);
+use POSIX qw(setpgid strftime);
 use Time::HiRes qw(sleep);
 
 use lib "$FindBin::Bin/lib";
@@ -117,8 +117,15 @@ for my $key (@selected_keys) {
 
 my $current_conf;
 my $redis_started = 0;
+my @active_child_pids;
+my $shutdown_signal;
+my $shutting_down = 0;
+
+$SIG{INT} = sub { handle_signal('INT'); };
+$SIG{TERM} = sub { handle_signal('TERM'); };
 
 END {
+    cleanup_active_children();
     eval { stop_nginx($current_conf) if defined $current_conf; };
     eval { stop_redis() if $redis_started; };
 }
@@ -446,15 +453,18 @@ sub fork_exec {
     die "fork failed: $!\n" unless defined $pid;
 
     if ($pid == 0) {
+        setpgid(0, 0) or die "setpgid failed: $!\n";
         exec @command or die "exec(@command): $!\n";
     }
 
+    push @active_child_pids, $pid;
     return $pid;
 }
 
 sub wait_for_child {
     my ($pid, $label) = @_;
     waitpid($pid, 0);
+    @active_child_pids = grep { $_ != $pid } @active_child_pids;
     die "$label failed\n" if $? != 0;
 }
 
@@ -488,6 +498,39 @@ sub log_info {
     my ($message) = @_;
     my $stamp = strftime('%H:%M:%S', localtime());
     print "[$stamp] $message\n";
+}
+
+sub handle_signal {
+    my ($signal_name) = @_;
+
+    return if $shutting_down;
+    $shutting_down = 1;
+    $shutdown_signal = $signal_name;
+
+    log_info("Received SIG$signal_name, shutting down benchmark");
+    cleanup_active_children();
+
+    die "Interrupted by SIG$signal_name\n";
+}
+
+sub cleanup_active_children {
+    return unless @active_child_pids;
+
+    my @pids = @active_child_pids;
+    @active_child_pids = ();
+
+    log_info('Stopping active benchmark worker processes');
+
+    for my $pid (@pids) {
+        kill 'TERM', -$pid;
+    }
+
+    sleep(0.2);
+
+    for my $pid (@pids) {
+        kill 'KILL', -$pid;
+        waitpid($pid, 0);
+    }
 }
 
 sub print_assertion_result {
