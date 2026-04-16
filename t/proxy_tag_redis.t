@@ -7,14 +7,14 @@ BEGIN {
     if (system("redis-cli -h 127.0.0.1 -p 6380 ping >/dev/null 2>&1") != 0) {
         system("redis-server --save '' --appendonly no --daemonize yes --bind 127.0.0.1 --port 6380 >/dev/null 2>&1");
     }
-    for my $db (10 .. 16) {
+    for my $db (0 .. 15) {
         system("redis-cli -h 127.0.0.1 -p 6380 -n $db FLUSHDB >/dev/null 2>&1");
     }
 }
 
 repeat_each(1);
 
-plan tests => repeat_each() * 83;
+plan tests => repeat_each() * 118;
 
 our $http_config = <<'_EOC_';
     proxy_cache_path  /tmp/ngx_cache_purge_cache_redis keys_zone=redis_cache:10m;
@@ -51,6 +51,88 @@ our $http_config_cache_tag = <<'_EOC_';
     proxy_temp_path   /tmp/ngx_cache_purge_temp_redis 1 2;
     cache_tag_index   redis 127.0.0.1:6380 db=15;
 _EOC_
+
+our $http_config_multi_tag = <<'_EOC_';
+    proxy_cache_path  /tmp/ngx_cache_purge_cache_redis keys_zone=redis_cache:10m;
+    proxy_temp_path   /tmp/ngx_cache_purge_temp_redis 1 2;
+    cache_tag_index   redis 127.0.0.1:6380 db=0;
+_EOC_
+
+our $config_multi_tag = <<'_EOC_';
+    location = /proxy/multi-a {
+        proxy_pass         $scheme://127.0.0.1:$server_port/origin/multi-a;
+        proxy_cache        redis_cache;
+        proxy_cache_key    $uri$is_args$args;
+        proxy_cache_valid  3m;
+        add_header         X-Cache-Status $upstream_cache_status;
+        proxy_cache_purge  PURGE soft from 127.0.0.1;
+        cache_purge_mode_header X-Purge-Mode;
+        cache_tag_watch    on;
+    }
+
+    location = /proxy/multi-b {
+        proxy_pass         $scheme://127.0.0.1:$server_port/origin/multi-b;
+        proxy_cache        redis_cache;
+        proxy_cache_key    $uri$is_args$args;
+        proxy_cache_valid  3m;
+        add_header         X-Cache-Status $upstream_cache_status;
+        proxy_cache_purge  PURGE soft from 127.0.0.1;
+        cache_purge_mode_header X-Purge-Mode;
+        cache_tag_watch    on;
+    }
+
+    location = /proxy/multi-c {
+        proxy_pass         $scheme://127.0.0.1:$server_port/origin/multi-c;
+        proxy_cache        redis_cache;
+        proxy_cache_key    $uri$is_args$args;
+        proxy_cache_valid  3m;
+        add_header         X-Cache-Status $upstream_cache_status;
+        proxy_cache_purge  PURGE soft from 127.0.0.1;
+        cache_purge_mode_header X-Purge-Mode;
+        cache_tag_watch    on;
+    }
+
+    location = /origin/multi-a {
+        add_header         Surrogate-Key "sk-multi-a sk-shared-multi";
+        return 200         "origin-multi-a";
+    }
+
+    location = /origin/multi-b {
+        add_header         Surrogate-Key "sk-multi-b sk-shared-multi";
+        return 200         "origin-multi-b";
+    }
+
+    location = /origin/multi-c {
+        add_header         Surrogate-Key "sk-unrelated-multi";
+        return 200         "origin-multi-c";
+    }
+_EOC_
+
+our $http_config_overload = <<'_EOC_';
+    proxy_cache_path  /tmp/ngx_cache_purge_cache_redis_overload keys_zone=redis_overload_cache:10m;
+    proxy_temp_path   /tmp/ngx_cache_purge_temp_redis_overload 1 2;
+    cache_tag_index   redis 127.0.0.1:6380 db=1;
+_EOC_
+
+our $config_overload = <<'_EOC_';
+    location = /proxy/overload {
+        proxy_pass         $scheme://127.0.0.1:$server_port/origin/overload;
+        proxy_cache        redis_overload_cache;
+        proxy_cache_key    $uri$is_args$args;
+        proxy_cache_valid  3m;
+        add_header         X-Cache-Status $upstream_cache_status;
+        proxy_cache_purge  PURGE soft from 127.0.0.1;
+        cache_purge_mode_header X-Purge-Mode;
+        cache_tag_watch    on;
+    }
+
+    location = /origin/overload {
+        add_header         Surrogate-Key "t1";
+        return 200         "origin-overload";
+    }
+_EOC_
+
+our $overload_tags = join(" ", map { "t$_" } 1..1001);
 
 our $config_soft = <<'_EOC_';
     location = /proxy/a {
@@ -467,3 +549,132 @@ X-Cache-Status: MISS
 --- response_body: origin-custom
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 23: prepare redis multi-tag-a cache entry
+--- http_config eval: $::http_config_multi_tag
+--- config eval: $::config_multi_tag
+--- request
+GET /proxy/multi-a
+--- error_code: 200
+--- response_headers
+X-Cache-Status: MISS
+--- response_body: origin-multi-a
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 24: prepare redis multi-tag-b cache entry
+--- http_config eval: $::http_config_multi_tag
+--- config eval: $::config_multi_tag
+--- request
+GET /proxy/multi-b
+--- error_code: 200
+--- response_headers
+X-Cache-Status: MISS
+--- response_body: origin-multi-b
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 25: prepare redis unrelated multi-tag-c cache entry
+--- http_config eval: $::http_config_multi_tag
+--- config eval: $::config_multi_tag
+--- request
+GET /proxy/multi-c
+--- error_code: 200
+--- response_headers
+X-Cache-Status: MISS
+--- response_body: origin-multi-c
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 26: redis purge by two tags uses SUNION across two tag keys
+--- http_config eval: $::http_config_multi_tag
+--- config eval: $::config_multi_tag
+--- request
+PURGE /proxy/multi-a
+--- more_headers
+Surrogate-Key: sk-multi-a sk-multi-b
+--- error_code: 200
+--- response_body_like: Successful purge
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 27: redis multi-tag-a entry is expired after two-tag purge
+--- http_config eval: $::http_config_multi_tag
+--- config eval: $::config_multi_tag
+--- request
+GET /proxy/multi-a
+--- error_code: 200
+--- response_headers
+X-Cache-Status: EXPIRED
+--- response_body: origin-multi-a
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 28: redis multi-tag-b entry is expired after two-tag purge
+--- http_config eval: $::http_config_multi_tag
+--- config eval: $::config_multi_tag
+--- request
+GET /proxy/multi-b
+--- error_code: 200
+--- response_headers
+X-Cache-Status: EXPIRED
+--- response_body: origin-multi-b
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 29: redis unrelated entry remains a hit after two-tag purge
+--- http_config eval: $::http_config_multi_tag
+--- config eval: $::config_multi_tag
+--- request
+GET /proxy/multi-c
+--- error_code: 200
+--- response_headers
+X-Cache-Status: HIT
+--- response_body: origin-multi-c
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 30: prepare redis overload cache entry for truncation test
+--- http_config eval: $::http_config_overload
+--- config eval: $::config_overload
+--- request
+GET /proxy/overload
+--- error_code: 200
+--- response_headers
+X-Cache-Status: MISS
+--- response_body: origin-overload
+--- timeout: 10
+--- no_error_log eval
+qr/\[(error|crit|alert|emerg)\]/
+
+
+
+=== TEST 31: redis purge with 1001 tags logs truncation warning at 1000
+--- http_config eval: $::http_config_overload
+--- config eval: $::config_overload
+--- request
+PURGE /proxy/overload
+--- more_headers eval
+"Surrogate-Key: $::overload_tags"
+--- error_code: 200
+--- response_body_like: Successful purge
+--- error_log eval
+qr/cache tag: too many tags in response header, truncating at 1000/
+--- no_error_log eval
+qr/\[(error|crit|alert|emerg)\]/

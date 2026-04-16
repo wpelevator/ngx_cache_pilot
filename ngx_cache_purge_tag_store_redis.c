@@ -56,6 +56,15 @@ static ngx_int_t ngx_http_cache_tag_store_redis_make_key(ngx_pool_t *pool,
 static ngx_int_t ngx_http_cache_tag_store_redis_delete_keys(
     ngx_http_cache_tag_store_t *store, ngx_str_t *first, ngx_str_t *second,
     ngx_log_t *log);
+static ngx_int_t ngx_http_cache_tag_store_redis_do_replace_file_tags(
+    ngx_http_cache_tag_store_t *store, ngx_str_t *zone_name, ngx_str_t *path,
+    time_t mtime, off_t size, ngx_array_t *tags, ngx_log_t *log);
+static ngx_int_t ngx_http_cache_tag_store_redis_do_delete_file(
+    ngx_http_cache_tag_store_t *store, ngx_str_t *zone_name, ngx_str_t *path,
+    ngx_log_t *log);
+static ngx_int_t ngx_http_cache_tag_store_redis_do_collect_paths_by_tags(
+    ngx_http_cache_tag_store_t *store, ngx_pool_t *pool, ngx_str_t *zone_name,
+    ngx_array_t *tags, ngx_array_t **paths, ngx_log_t *log);
 
 static ngx_str_t ngx_http_cache_tag_redis_zone_prefix =
     ngx_string("cache_tag:zone:");
@@ -155,6 +164,37 @@ static ngx_int_t
 ngx_http_cache_tag_store_redis_replace_file_tags(ngx_http_cache_tag_store_t *store,
         ngx_str_t *zone_name, ngx_str_t *path, time_t mtime, off_t size,
         ngx_array_t *tags, ngx_log_t *log) {
+    ngx_uint_t  retry;
+    ngx_int_t   rc;
+
+    rc = NGX_ERROR;
+    for (retry = 0; retry < 2; retry++) {
+        if (retry > 0) {
+            ngx_http_cache_tag_store_redis_close_socket(store);
+            ngx_log_error(NGX_LOG_WARN, log, 0,
+                          "cache_tag redis replace_file_tags failed, "
+                          "retrying after reconnect for zone \"%V\" path \"%V\"",
+                          zone_name, path);
+        }
+        if (ngx_http_cache_tag_store_redis_ensure_connected(store, log)
+                != NGX_OK) {
+            return NGX_ERROR;
+        }
+        rc = ngx_http_cache_tag_store_redis_do_replace_file_tags(
+                 store, zone_name, path, mtime, size, tags, log);
+        if (rc == NGX_OK) {
+            break;
+        }
+    }
+
+    return rc;
+}
+
+static ngx_int_t
+ngx_http_cache_tag_store_redis_do_replace_file_tags(
+    ngx_http_cache_tag_store_t *store, ngx_str_t *zone_name,
+    ngx_str_t *path, time_t mtime, off_t size, ngx_array_t *tags,
+    ngx_log_t *log) {
     ngx_pool_t   *pool;
     ngx_array_t  *old_tags;
     ngx_str_t    *tag;
@@ -183,10 +223,6 @@ ngx_http_cache_tag_store_redis_replace_file_tags(ngx_http_cache_tag_store_t *sto
     }
 
     old_tags = NULL;
-    if (ngx_http_cache_tag_store_redis_ensure_connected(store, log) != NGX_OK) {
-        ngx_destroy_pool(pool);
-        return NGX_ERROR;
-    }
 
     add_args[0] = ngx_http_cache_tag_redis_cmd_smembers;
     add_args[1] = file_key;
@@ -199,6 +235,7 @@ ngx_http_cache_tag_store_redis_replace_file_tags(ngx_http_cache_tag_store_t *sto
     }
 
     if (old_tags != NULL) {
+        /* Pipeline phase 1: send all SREM commands */
         tag = old_tags->elts;
         for (i = 0; i < old_tags->nelts; i++) {
             if (ngx_http_cache_tag_store_redis_make_key(pool,
@@ -211,9 +248,16 @@ ngx_http_cache_tag_store_redis_replace_file_tags(ngx_http_cache_tag_store_t *sto
             add_args[0] = ngx_http_cache_tag_redis_cmd_srem;
             add_args[1] = tag_key;
             add_args[2] = *path;
-            if (ngx_http_cache_tag_store_redis_send_command(store, log, 3, add_args)
-                    != NGX_OK
-                    || ngx_http_cache_tag_store_redis_discard_reply(store, log)
+            if (ngx_http_cache_tag_store_redis_send_command(store, log, 3,
+                    add_args) != NGX_OK) {
+                ngx_destroy_pool(pool);
+                return NGX_ERROR;
+            }
+        }
+
+        /* Pipeline phase 2: drain all SREM responses */
+        for (i = 0; i < old_tags->nelts; i++) {
+            if (ngx_http_cache_tag_store_redis_discard_reply(store, log)
                     != NGX_OK) {
                 ngx_destroy_pool(pool);
                 return NGX_ERROR;
@@ -280,6 +324,7 @@ ngx_http_cache_tag_store_redis_replace_file_tags(ngx_http_cache_tag_store_t *sto
         return NGX_ERROR;
     }
 
+    /* Pipeline phase 1: send all per-tag SADD commands */
     for (i = 0; i < tags->nelts; i++) {
         if (ngx_http_cache_tag_store_redis_make_key(pool,
                 &ngx_http_cache_tag_redis_tag_prefix, zone_name, &tag[i], &tag_key)
@@ -292,9 +337,15 @@ ngx_http_cache_tag_store_redis_replace_file_tags(ngx_http_cache_tag_store_t *sto
         add_args[1] = tag_key;
         add_args[2] = *path;
         if (ngx_http_cache_tag_store_redis_send_command(store, log, 3, add_args)
-                != NGX_OK
-                || ngx_http_cache_tag_store_redis_discard_reply(store, log)
                 != NGX_OK) {
+            ngx_destroy_pool(pool);
+            return NGX_ERROR;
+        }
+    }
+
+    /* Pipeline phase 2: drain all per-tag SADD responses */
+    for (i = 0; i < tags->nelts; i++) {
+        if (ngx_http_cache_tag_store_redis_discard_reply(store, log) != NGX_OK) {
             ngx_destroy_pool(pool);
             return NGX_ERROR;
         }
@@ -309,6 +360,36 @@ static ngx_int_t
 ngx_http_cache_tag_store_redis_delete_file(ngx_http_cache_tag_store_t *store,
         ngx_str_t *zone_name, ngx_str_t *path,
         ngx_log_t *log) {
+    ngx_uint_t  retry;
+    ngx_int_t   rc;
+
+    rc = NGX_ERROR;
+    for (retry = 0; retry < 2; retry++) {
+        if (retry > 0) {
+            ngx_http_cache_tag_store_redis_close_socket(store);
+            ngx_log_error(NGX_LOG_WARN, log, 0,
+                          "cache_tag redis delete_file failed, "
+                          "retrying after reconnect for zone \"%V\" path \"%V\"",
+                          zone_name, path);
+        }
+        if (ngx_http_cache_tag_store_redis_ensure_connected(store, log)
+                != NGX_OK) {
+            return NGX_ERROR;
+        }
+        rc = ngx_http_cache_tag_store_redis_do_delete_file(
+                 store, zone_name, path, log);
+        if (rc == NGX_OK) {
+            break;
+        }
+    }
+
+    return rc;
+}
+
+static ngx_int_t
+ngx_http_cache_tag_store_redis_do_delete_file(
+    ngx_http_cache_tag_store_t *store, ngx_str_t *zone_name,
+    ngx_str_t *path, ngx_log_t *log) {
     ngx_pool_t   *pool;
     ngx_array_t  *old_tags;
     ngx_str_t    *tag;
@@ -341,6 +422,7 @@ ngx_http_cache_tag_store_redis_delete_file(ngx_http_cache_tag_store_t *store,
     }
 
     if (old_tags != NULL) {
+        /* Pipeline phase 1: send all SREM commands */
         tag = old_tags->elts;
         for (i = 0; i < old_tags->nelts; i++) {
             if (ngx_http_cache_tag_store_redis_make_key(pool,
@@ -354,8 +436,15 @@ ngx_http_cache_tag_store_redis_delete_file(ngx_http_cache_tag_store_t *store,
             args[1] = tag_key;
             args[2] = *path;
             if (ngx_http_cache_tag_store_redis_send_command(store, log, 3, args)
-                    != NGX_OK
-                    || ngx_http_cache_tag_store_redis_discard_reply(store, log)
+                    != NGX_OK) {
+                ngx_destroy_pool(pool);
+                return NGX_ERROR;
+            }
+        }
+
+        /* Pipeline phase 2: drain all SREM responses */
+        for (i = 0; i < old_tags->nelts; i++) {
+            if (ngx_http_cache_tag_store_redis_discard_reply(store, log)
                     != NGX_OK) {
                 ngx_destroy_pool(pool);
                 return NGX_ERROR;
@@ -376,6 +465,35 @@ ngx_http_cache_tag_store_redis_delete_file(ngx_http_cache_tag_store_t *store,
 
 static ngx_int_t
 ngx_http_cache_tag_store_redis_collect_paths_by_tags(
+    ngx_http_cache_tag_store_t *store, ngx_pool_t *pool, ngx_str_t *zone_name,
+    ngx_array_t *tags, ngx_array_t **paths, ngx_log_t *log) {
+    ngx_uint_t  retry;
+    ngx_int_t   rc;
+
+    rc = NGX_ERROR;
+    for (retry = 0; retry < 2; retry++) {
+        if (retry > 0) {
+            ngx_http_cache_tag_store_redis_close_socket(store);
+            ngx_log_error(NGX_LOG_WARN, log, 0,
+                          "cache_tag redis collect_paths failed, "
+                          "retrying after reconnect for zone \"%V\"", zone_name);
+        }
+        if (ngx_http_cache_tag_store_redis_ensure_connected(store, log)
+                != NGX_OK) {
+            return NGX_ERROR;
+        }
+        rc = ngx_http_cache_tag_store_redis_do_collect_paths_by_tags(
+                 store, pool, zone_name, tags, paths, log);
+        if (rc == NGX_OK) {
+            break;
+        }
+    }
+
+    return rc;
+}
+
+static ngx_int_t
+ngx_http_cache_tag_store_redis_do_collect_paths_by_tags(
     ngx_http_cache_tag_store_t *store, ngx_pool_t *pool, ngx_str_t *zone_name,
     ngx_array_t *tags, ngx_array_t **paths, ngx_log_t *log) {
     ngx_array_t  *args, *result;

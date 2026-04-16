@@ -121,6 +121,8 @@ typedef struct {
 #define NGX_HTTP_CACHE_TAG_QUEUE_CAPACITY       256
 #define NGX_HTTP_CACHE_TAG_QUEUE_SIZE           (2 * 1024 * 1024)
 
+#define NGX_HTTP_CACHE_TAG_MAX_TAGS_PER_FILE    1000
+
 typedef struct {
     ngx_uint_t                    operation;
     size_t                        zone_name_len;
@@ -182,7 +184,8 @@ ngx_flag_t ngx_http_cache_tag_location_enabled(
 ngx_int_t ngx_http_cache_tag_request_headers(ngx_http_request_t *r,
                                              ngx_array_t **tags);
 ngx_int_t ngx_http_cache_tag_extract_tokens(ngx_pool_t *pool, u_char *value,
-                                            size_t len, ngx_array_t *tags);
+                                            size_t len, ngx_array_t *tags,
+                                            ngx_log_t *log);
 ngx_int_t ngx_http_cache_tag_register_cache(ngx_conf_t *cf,
                                             ngx_http_file_cache_t *cache,
                                             ngx_array_t *headers);

@@ -236,75 +236,129 @@ static ngx_int_t
 ngx_http_cache_tag_store_sqlite_collect_paths_by_tags(
     ngx_http_cache_tag_store_t *store, ngx_pool_t *pool, ngx_str_t *zone_name,
     ngx_array_t *tags, ngx_array_t **paths, ngx_log_t *log) {
+#define NGX_CACHE_TAG_SQLITE_COLLECT_PREFIX \
+    "SELECT DISTINCT path FROM cache_tag_entries WHERE zone = ?1 AND tag IN ("
+
     ngx_array_t    *result;
     ngx_str_t      *tag, *path;
     const u_char   *text;
-    ngx_uint_t      i, j;
+    ngx_uint_t      i;
     int             rc;
-    size_t          len;
+    size_t          len, sql_len;
+    sqlite3_stmt   *stmt;
+    u_char         *sql, *p;
+    ngx_int_t       is_adhoc;
 
     result = ngx_array_create(pool, 8, sizeof(ngx_str_t));
     if (result == NULL) {
         return NGX_ERROR;
     }
 
+    if (tags == NULL || tags->nelts == 0) {
+        *paths = result;
+        return NGX_OK;
+    }
+
     tag = tags->elts;
-    for (i = 0; i < tags->nelts; i++) {
-        sqlite3_reset(store->u.sqlite.stmt.collect_paths);
-        sqlite3_clear_bindings(store->u.sqlite.stmt.collect_paths);
-        sqlite3_bind_text(store->u.sqlite.stmt.collect_paths, 1,
-                          (const char *) zone_name->data, zone_name->len,
-                          SQLITE_TRANSIENT);
-        sqlite3_bind_text(store->u.sqlite.stmt.collect_paths, 2,
-                          (const char *) tag[i].data, tag[i].len,
-                          SQLITE_TRANSIENT);
+    is_adhoc = (tags->nelts > 1);
 
-        while ((rc = ngx_http_cache_tag_store_sqlite_step(
-                         store->u.sqlite.stmt.collect_paths, store->u.sqlite.db,
-                         log, "lookup")) == SQLITE_ROW) {
-            text = sqlite3_column_text(store->u.sqlite.stmt.collect_paths, 0);
-            if (text == NULL) {
-                continue;
-            }
+    if (!is_adhoc) {
+        /* single-tag fast path: reuse pre-prepared statement */
+        stmt = store->u.sqlite.stmt.collect_paths;
+        sqlite3_reset(stmt);
+        sqlite3_clear_bindings(stmt);
+        sqlite3_bind_text(stmt, 1, (const char *) zone_name->data,
+                          zone_name->len, SQLITE_TRANSIENT);
+        sqlite3_bind_text(stmt, 2, (const char *) tag[0].data,
+                          tag[0].len, SQLITE_TRANSIENT);
 
-            len = ngx_strlen(text);
-            path = result->elts;
-            for (j = 0; j < result->nelts; j++) {
-                if (path[j].len == len
-                        && ngx_strncmp(path[j].data, text, len) == 0) {
-                    break;
-                }
-            }
+    } else {
+        /* multi-tag: build "WHERE zone = ?1 AND tag IN (?2, ?3, ...)" */
+        /* Each placeholder is at most "?1001," = 6 chars; +2 for ")\0" */
+        sql_len = sizeof(NGX_CACHE_TAG_SQLITE_COLLECT_PREFIX) - 1
+                  + tags->nelts * 6 + 2;
 
-            if (j != result->nelts) {
-                continue;
-            }
-
-            path = ngx_array_push(result);
-            if (path == NULL) {
-                return NGX_ERROR;
-            }
-
-            path->data = ngx_pnalloc(pool, len + 1);
-            if (path->data == NULL) {
-                return NGX_ERROR;
-            }
-
-            ngx_memcpy(path->data, text, len);
-            path->len = len;
-            path->data[len] = '\0';
+        sql = ngx_palloc(pool, sql_len);
+        if (sql == NULL) {
+            return NGX_ERROR;
         }
 
-        if (rc != SQLITE_DONE) {
-            ngx_log_error(NGX_LOG_ERR, log, 0, "sqlite lookup failed: %s",
+        p = ngx_cpymem(sql, NGX_CACHE_TAG_SQLITE_COLLECT_PREFIX,
+                       sizeof(NGX_CACHE_TAG_SQLITE_COLLECT_PREFIX) - 1);
+
+        for (i = 0; i < tags->nelts; i++) {
+            p = ngx_sprintf(p, "?%ui", (ngx_uint_t)(i + 2));
+            if (i + 1 < tags->nelts) {
+                *p++ = ',';
+            }
+        }
+        *p++ = ')';
+        *p   = '\0';
+
+        if (sqlite3_prepare_v2(store->u.sqlite.db, (const char *) sql, -1,
+                               &stmt, NULL) != SQLITE_OK) {
+            ngx_log_error(NGX_LOG_ERR, log, 0,
+                          "sqlite prepare collect_paths failed: %s",
                           sqlite3_errmsg(store->u.sqlite.db));
             return NGX_ERROR;
         }
+
+        sqlite3_bind_text(stmt, 1, (const char *) zone_name->data,
+                          zone_name->len, SQLITE_TRANSIENT);
+
+        for (i = 0; i < tags->nelts; i++) {
+            sqlite3_bind_text(stmt, (int)(i + 2),
+                              (const char *) tag[i].data,
+                              tag[i].len, SQLITE_TRANSIENT);
+        }
+    }
+
+    while ((rc = ngx_http_cache_tag_store_sqlite_step(
+                     stmt, store->u.sqlite.db,
+                     log, "lookup")) == SQLITE_ROW) {
+        text = sqlite3_column_text(stmt, 0);
+        if (text == NULL) {
+            continue;
+        }
+
+        len = ngx_strlen(text);
+
+        path = ngx_array_push(result);
+        if (path == NULL) {
+            if (is_adhoc) {
+                sqlite3_finalize(stmt);
+            }
+            return NGX_ERROR;
+        }
+
+        path->data = ngx_pnalloc(pool, len + 1);
+        if (path->data == NULL) {
+            if (is_adhoc) {
+                sqlite3_finalize(stmt);
+            }
+            return NGX_ERROR;
+        }
+
+        ngx_memcpy(path->data, text, len);
+        path->len = len;
+        path->data[len] = '\0';
+    }
+
+    if (is_adhoc) {
+        sqlite3_finalize(stmt);
+    }
+
+    if (rc != SQLITE_DONE) {
+        ngx_log_error(NGX_LOG_ERR, log, 0, "sqlite lookup failed: %s",
+                      sqlite3_errmsg(store->u.sqlite.db));
+        return NGX_ERROR;
     }
 
     *paths = result;
 
     return NGX_OK;
+
+#undef NGX_CACHE_TAG_SQLITE_COLLECT_PREFIX
 }
 
 static ngx_int_t
@@ -408,6 +462,12 @@ ngx_http_cache_tag_store_sqlite_open_one(ngx_str_t *path, int flags,
     store->u.sqlite.db = db;
 
     sqlite3_busy_timeout(db, 5000);
+
+    /* Raise the bind-parameter limit so large IN-clause queries (e.g.
+     * purge by many tags) work.  The default is 999; 32766 is the hard
+     * maximum SQLite supports.  This is per-connection and has no effect
+     * on other databases. */
+    sqlite3_limit(db, SQLITE_LIMIT_VARIABLE_NUMBER, 32766);
 
     return store;
 }

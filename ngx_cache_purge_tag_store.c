@@ -200,7 +200,7 @@ ngx_http_cache_tag_store_reader(ngx_http_cache_purge_main_conf_t *pmcf,
 
 ngx_int_t
 ngx_http_cache_tag_extract_tokens(ngx_pool_t *pool, u_char *value, size_t len,
-                                  ngx_array_t *tags) {
+                                  ngx_array_t *tags, ngx_log_t *log) {
     size_t  i, start, end;
 
     i = 0;
@@ -220,10 +220,19 @@ ngx_http_cache_tag_extract_tokens(ngx_pool_t *pool, u_char *value, size_t len,
         }
 
         end = i;
-        if (end > start
-                && ngx_http_cache_tag_push_unique(pool, tags, value + start,
-                        end - start) != NGX_OK) {
-            return NGX_ERROR;
+        if (end > start) {
+            if (tags->nelts >= NGX_HTTP_CACHE_TAG_MAX_TAGS_PER_FILE) {
+                ngx_log_error(NGX_LOG_WARN, log, 0,
+                              "cache tag: too many tags in response header, "
+                              "truncating at %d",
+                              NGX_HTTP_CACHE_TAG_MAX_TAGS_PER_FILE);
+                break;
+            }
+
+            if (ngx_http_cache_tag_push_unique(pool, tags, value + start,
+                                               end - start) != NGX_OK) {
+                return NGX_ERROR;
+            }
         }
     }
 
@@ -356,7 +365,7 @@ ngx_http_cache_tag_parse_file(ngx_pool_t *pool, ngx_str_t *path,
 
             if (ngx_http_cache_tag_extract_tokens(pool, buf + value_start,
                                                   line_end - value_start,
-                                                  result) != NGX_OK) {
+                                                  result, log) != NGX_OK) {
                 return NGX_ERROR;
             }
         }

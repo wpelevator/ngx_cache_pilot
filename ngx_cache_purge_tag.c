@@ -228,7 +228,8 @@ ngx_http_cache_tag_request_headers(ngx_http_request_t *r, ngx_array_t **tags) {
             }
 
             if (ngx_http_cache_tag_extract_tokens(r->pool, header[i].value.data,
-                                                  header[i].value.len, result)
+                                                  header[i].value.len, result,
+                                                  r->connection->log)
                     != NGX_OK) {
                 return NGX_ERROR;
             }
