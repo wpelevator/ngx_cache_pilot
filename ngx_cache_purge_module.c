@@ -137,9 +137,9 @@ void        ngx_http_cache_purge_handler(ngx_http_request_t *r);
 ngx_int_t   ngx_http_file_cache_purge(ngx_http_request_t *r);
 ngx_int_t   ngx_http_file_cache_purge_soft(ngx_http_request_t *r);
 static ngx_int_t ngx_http_purge_cache_exact_key_file(ngx_tree_ctx_t *ctx,
-    ngx_str_t *path);
+        ngx_str_t *path);
 ngx_int_t   ngx_http_cache_purge_by_exact_key(ngx_http_request_t *r,
-    ngx_http_file_cache_t *cache, ngx_int_t soft);
+        ngx_http_file_cache_t *cache, ngx_int_t soft);
 
 
 ngx_int_t   ngx_http_cache_purge_all(ngx_http_request_t *r, ngx_http_file_cache_t *cache);
@@ -2100,8 +2100,7 @@ typedef struct {
  * a different file-name hash, so they are matched and removed automatically.
  */
 static ngx_int_t
-ngx_http_purge_cache_exact_key_file(ngx_tree_ctx_t *ctx, ngx_str_t *path)
-{
+ngx_http_purge_cache_exact_key_file(ngx_tree_ctx_t *ctx, ngx_str_t *path) {
     ngx_http_cache_purge_exact_ctx_t  *data;
     ngx_file_t                         file;
     ssize_t                            n;
@@ -2127,8 +2126,7 @@ ngx_http_purge_cache_exact_key_file(ngx_tree_ctx_t *ctx, ngx_str_t *path)
 
     /* Byte-exact key comparison followed by LF terminator check. */
     if (ngx_memcmp(data->buf, data->key_data, data->key_len) != 0
-        || data->buf[data->key_len] != LF)
-    {
+            || data->buf[data->key_len] != LF) {
         return NGX_OK;
     }
 
@@ -2137,8 +2135,7 @@ ngx_http_purge_cache_exact_key_file(ngx_tree_ctx_t *ctx, ngx_str_t *path)
                    path->data);
 
     if (ngx_http_cache_purge_by_path(data->cache, path,
-                                     data->soft, ctx->log) == NGX_OK)
-    {
+                                     data->soft, ctx->log) == NGX_OK) {
         data->deleted++;
     }
 
@@ -2161,8 +2158,7 @@ ngx_http_purge_cache_exact_key_file(ngx_tree_ctx_t *ctx, ngx_str_t *path)
  */
 ngx_int_t
 ngx_http_cache_purge_by_exact_key(ngx_http_request_t *r,
-    ngx_http_file_cache_t *cache, ngx_int_t soft)
-{
+                                  ngx_http_file_cache_t *cache, ngx_int_t soft) {
     ngx_http_cache_purge_exact_ctx_t  ctx;
     ngx_str_t                        *keys;
     ngx_tree_ctx_t                    tree;
