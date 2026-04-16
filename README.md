@@ -593,8 +593,7 @@ docker compose up -d redis
 make shell
 make nginx-build
 redis-cli -h redis -p 6379 -n 10 FLUSHDB
-rm -rf /tmp/ngx_cache_purge_demo_* /tmp/ngx_cache_purge_temp /tmp/ngx_cache_purge_demo_tags.sqlite
-mkdir -p /tmp/ngx_cache_purge_temp /tmp/logs
+rm -rf /tmp/ngx_cache_*
 /opt/nginx/sbin/nginx -p /tmp -c /workspace/examples/docker-validation.conf
 ```
 
