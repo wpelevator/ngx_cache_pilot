@@ -39,6 +39,7 @@ die "--concurrency must be > 0\n" unless $options{concurrency} > 0;
 my $duration = $options{quick} ? 15 : 60;
 my $perl = $^X;
 my $nginx = '/opt/nginx/sbin/nginx';
+my $nginx_error_log = '/tmp/bench_nginx_error.log';
 my $nginx_prefix = '/tmp/bench_nginx';
 my $get_worker = "$FindBin::Bin/worker_get.pl";
 my $purge_worker = "$FindBin::Bin/worker_purge.pl";
@@ -120,6 +121,7 @@ my $redis_started = 0;
 my @active_child_pids;
 my $shutdown_signal;
 my $shutting_down = 0;
+my $nginx_error_log_offset = 0;
 
 $SIG{INT} = sub { handle_signal('INT'); };
 $SIG{TERM} = sub { handle_signal('TERM'); };
@@ -177,6 +179,7 @@ for my $scenario (@scenarios) {
         start_nginx($current_conf);
         wait_for_stats($stats_url);
         log_info('Metrics endpoint is ready');
+        record_nginx_error_log($run_dir, join('_', $scenario->{config_template_name}, $scenario->{backend}, 'startup'));
         $active_runtime = $runtime_key;
     }
 
@@ -295,6 +298,7 @@ sub run_scenario {
     my $get_result = read_json($get_out);
     my $purge_result = read_json($purge_out);
     my $metrics_delta = stats_delta($before, $after);
+    my $nginx_log = record_nginx_error_log($run_dir, $scenario->{name});
 
     my $scenario_result = {
         scenario      => $scenario->{key},
@@ -308,6 +312,7 @@ sub run_scenario {
         stats_before  => $before,
         stats_after   => $after,
         metrics_delta => $metrics_delta,
+        nginx_error_log => $nginx_log,
     };
 
     write_json("$run_dir/$scenario->{name}.json", $scenario_result);
@@ -346,12 +351,14 @@ sub cleanup_runtime_state {
         '/tmp/bench_tags.db-shm',
         '/tmp/bench_tags.db-wal',
         '/tmp/bench_nginx.pid',
-        '/tmp/bench_nginx_error.log',
+        $nginx_error_log,
         '/tmp/bench_redis.log',
         $redis_pid_file,
     ) {
         unlink $file if -e $file;
     }
+
+    $nginx_error_log_offset = 0;
 
     unlink $_ for glob('/tmp/bench_nginx_*.conf');
 
@@ -413,11 +420,16 @@ sub stop_nginx {
 sub ensure_nginx_prefix {
     make_path($nginx_prefix, "$nginx_prefix/logs");
 
-    my $error_log = "$nginx_prefix/logs/error.log";
-    return if -e $error_log;
+    my $prefix_error_log = "$nginx_prefix/logs/error.log";
+    if (!-e $prefix_error_log) {
+        open my $prefix_fh, '>', $prefix_error_log or die "open($prefix_error_log): $!";
+        close $prefix_fh or die "close($prefix_error_log): $!";
+    }
 
-    open my $fh, '>', $error_log or die "open($error_log): $!";
-    close $fh or die "close($error_log): $!";
+    return if -e $nginx_error_log;
+
+    open my $fh, '>', $nginx_error_log or die "open($nginx_error_log): $!";
+    close $fh or die "close($nginx_error_log): $!";
 }
 
 sub wait_for_stats {
@@ -485,6 +497,65 @@ sub update_latest_symlink {
     my $latest = "$out_dir/latest";
     unlink $latest if -l $latest || -e $latest;
     symlink($timestamp, $latest) or die "symlink($latest): $!";
+}
+
+sub record_nginx_error_log {
+    my ($run_dir, $label) = @_;
+
+    my $chunk = consume_nginx_error_log();
+    return undef unless length $chunk;
+
+    my $safe_label = sanitize_config_name($label);
+    my $scenario_log = "$run_dir/${safe_label}_nginx_error.log";
+    append_text_file($scenario_log, $chunk);
+    append_text_file("$run_dir/nginx_error.log", $chunk);
+
+    my $line_count = scalar grep { length $_ } split /\n/, $chunk;
+
+    log_info("nginx emitted error-log output for $label");
+    print_nginx_error_log($label, $chunk);
+
+    return {
+        file       => $scenario_log,
+        line_count => $line_count,
+    };
+}
+
+sub consume_nginx_error_log {
+    return '' unless -e $nginx_error_log;
+
+    my $size = -s $nginx_error_log;
+    return '' unless defined $size;
+
+    if ($nginx_error_log_offset > $size) {
+        $nginx_error_log_offset = 0;
+    }
+
+    open my $fh, '<', $nginx_error_log or die "open($nginx_error_log): $!";
+    seek($fh, $nginx_error_log_offset, 0) or die "seek($nginx_error_log): $!";
+    local $/;
+    my $chunk = <$fh>;
+    $chunk = '' unless defined $chunk;
+    $nginx_error_log_offset = tell($fh);
+    close $fh or die "close($nginx_error_log): $!";
+
+    return $chunk;
+}
+
+sub append_text_file {
+    my ($file, $text) = @_;
+
+    open my $fh, '>>', $file or die "open($file): $!";
+    print {$fh} $text or die "write($file): $!";
+    close $fh or die "close($file): $!";
+}
+
+sub print_nginx_error_log {
+    my ($label, $chunk) = @_;
+
+    print "\nnginx error log ($label)\n";
+    print $chunk;
+    print "\n" unless $chunk =~ /\n\z/;
 }
 
 sub print_summary_json {

@@ -581,7 +581,7 @@ make bench
 cat /workspace/bench/results/latest/summary.txt
 ```
 
-Results are written under `bench/results/<timestamp>/` with one JSON file per scenario plus `summary.json` and `summary.txt`. The `bench/results/latest` symlink points at the most recent run. During the Redis scenario, `bench/bench.pl` starts a local `redis-server` on `127.0.0.1:16379`, uses `bench/nginx_redis.conf`, and shuts Redis down during teardown.
+Results are written under `bench/results/<timestamp>/` with one JSON file per scenario plus `summary.json`, `summary.txt`, and aggregated nginx error-log artifacts. The `bench/results/latest` symlink points at the most recent run. During the Redis scenario, `bench/bench.pl` starts a local `redis-server` on `127.0.0.1:16379`, uses `bench/nginx_redis.conf`, and shuts Redis down during teardown. If nginx writes anything to its benchmark error log during startup or a scenario run, `bench/bench.pl` prints that log chunk inline and saves it under the run directory.
 
 The benchmark suite now uses two explicit nginx templates: `bench/nginx.conf` for SQLite-backed scenarios and `bench/nginx_redis.conf` for Redis-backed scenarios. If more benchmark layouts are added later, drop another `*.conf` template into `bench/`, assign scenarios to it in `bench/bench.pl`, and the runner will restart nginx when either the template or backend changes. You can also override the template for a whole run with `--config-template <name-or-path>`.
 
