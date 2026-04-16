@@ -2179,7 +2179,7 @@ ngx_http_cache_purge_conf(ngx_conf_t *cf, ngx_http_cache_purge_conf_t *cpcf) {
     cpcf->configured = 1;
     position = cf->args->nelts;
 
-    for ( ;; ) {
+    for (;;) {
         if (position > 2 && !cpcf->purge_all
                 && ngx_strcmp(value[position - 1].data, "purge_all") == 0) {
             cpcf->purge_all = 1;
@@ -2371,11 +2371,11 @@ ngx_http_fastcgi_cache_purge_attach(ngx_conf_t *cf,
         if (conf->cache_tag_watch && conf->handler != NULL
                 && ngx_http_cache_tag_register_cache(cf,
 #  if (nginx_version >= 1007009)
-                flcf->upstream.cache_zone ? flcf->upstream.cache_zone->data : NULL
+                        flcf->upstream.cache_zone ? flcf->upstream.cache_zone->data : NULL
 #  else
-                flcf->upstream.cache ? flcf->upstream.cache->data : NULL
+                        flcf->upstream.cache ? flcf->upstream.cache->data : NULL
 #  endif
-                , conf->cache_tag_headers) != NGX_OK) {
+                        , conf->cache_tag_headers) != NGX_OK) {
             return NGX_CONF_ERROR;
         }
 
@@ -2450,11 +2450,11 @@ ngx_http_proxy_cache_purge_attach(ngx_conf_t *cf,
         if (conf->cache_tag_watch && conf->handler != NULL
                 && ngx_http_cache_tag_register_cache(cf,
 #  if (nginx_version >= 1007009)
-                plcf->upstream.cache_zone ? plcf->upstream.cache_zone->data : NULL
+                        plcf->upstream.cache_zone ? plcf->upstream.cache_zone->data : NULL
 #  else
-                plcf->upstream.cache ? plcf->upstream.cache->data : NULL
+                        plcf->upstream.cache ? plcf->upstream.cache->data : NULL
 #  endif
-                , conf->cache_tag_headers) != NGX_OK) {
+                        , conf->cache_tag_headers) != NGX_OK) {
             return NGX_CONF_ERROR;
         }
 
@@ -2529,11 +2529,11 @@ ngx_http_scgi_cache_purge_attach(ngx_conf_t *cf,
         if (conf->cache_tag_watch && conf->handler != NULL
                 && ngx_http_cache_tag_register_cache(cf,
 #  if (nginx_version >= 1007009)
-                slcf->upstream.cache_zone ? slcf->upstream.cache_zone->data : NULL
+                        slcf->upstream.cache_zone ? slcf->upstream.cache_zone->data : NULL
 #  else
-                slcf->upstream.cache ? slcf->upstream.cache->data : NULL
+                        slcf->upstream.cache ? slcf->upstream.cache->data : NULL
 #  endif
-                , conf->cache_tag_headers) != NGX_OK) {
+                        , conf->cache_tag_headers) != NGX_OK) {
             return NGX_CONF_ERROR;
         }
 
@@ -2608,11 +2608,11 @@ ngx_http_uwsgi_cache_purge_attach(ngx_conf_t *cf,
         if (conf->cache_tag_watch && conf->handler != NULL
                 && ngx_http_cache_tag_register_cache(cf,
 #  if (nginx_version >= 1007009)
-                ulcf->upstream.cache_zone ? ulcf->upstream.cache_zone->data : NULL
+                        ulcf->upstream.cache_zone ? ulcf->upstream.cache_zone->data : NULL
 #  else
-                ulcf->upstream.cache ? ulcf->upstream.cache->data : NULL
+                        ulcf->upstream.cache ? ulcf->upstream.cache->data : NULL
 #  endif
-                , conf->cache_tag_headers) != NGX_OK) {
+                        , conf->cache_tag_headers) != NGX_OK) {
             return NGX_CONF_ERROR;
         }
 
