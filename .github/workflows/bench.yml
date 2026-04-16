@@ -48,4 +48,5 @@ jobs:
             bench/results/latest/summary.json
             bench/results/latest/summary.txt
             bench/results/latest/*.json
+            bench/results/latest/*.log
           if-no-files-found: error
