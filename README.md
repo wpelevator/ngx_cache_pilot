@@ -253,6 +253,8 @@ All watched locations that share the same cache zone must use the same `cache_ta
 
 Enable cache-tag indexing for the cache used by the current purge-enabled location. When enabled, the module watches the cache directory, indexes tags found in cached response headers, and allows tag-based `PURGE` requests.
 
+For hard tag purges, matching cache files are removed immediately and the corresponding SQLite index deletes are handed off asynchronously to the owner worker. A successful purge response means all required index deletes were accepted for processing; if that handoff cannot be accepted, the request fails with `500`.
+
 ## Partial Keys
 
 Sometimes it is not possible to pass the exact cache key to purge a page. For example, parts of the key may depend on cookies or query parameters. You can specify a partial key by adding an asterisk at the end of the URL.
@@ -303,6 +305,8 @@ All supplied tags are matched with OR semantics. If any cached file is indexed u
 If a watched purge location receives a plain `PURGE` request without any of the configured tag headers, the module falls back to the normal key-based purge behavior for that location.
 
 For tag-based purges, the configured `cache_purge_mode_header` can switch a request between soft and hard purge. Without that header, the configured purge mode is used.
+
+Hard tag purges use asynchronous owner-worker handoff for SQLite index deletes. A `200` response means the delete work was accepted for processing, not necessarily already persisted to SQLite.
 
 Notes:
 

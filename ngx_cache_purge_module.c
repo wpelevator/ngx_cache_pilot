@@ -2559,6 +2559,13 @@ ngx_http_cache_purge_init_main_conf(ngx_conf_t *cf, void *conf) {
         pmcf->sqlite_path.len = 0;
     }
 
+#if (NGX_LINUX)
+    if (pmcf->sqlite_path.len > 0
+            && ngx_http_cache_tag_queue_init_conf(cf, pmcf) != NGX_OK) {
+        return NGX_CONF_ERROR;
+    }
+#endif
+
     return NGX_CONF_OK;
 }
 

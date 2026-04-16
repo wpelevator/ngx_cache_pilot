@@ -298,15 +298,20 @@ ngx_http_cache_tag_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache) {
     }
 
     if (paths->nelts == 0 && !state.bootstrap_complete && cache->path != NULL) {
-        writer = ngx_http_cache_tag_store_open_writer(&pmcf->sqlite_path,
-                 r->connection->log);
+        writer = ngx_http_cache_tag_is_owner()
+                 ? ngx_http_cache_tag_store_writer()
+                 : ngx_http_cache_tag_store_open_writer(&pmcf->sqlite_path,
+                         r->connection->log);
         if (writer == NULL) {
             return NGX_ERROR;
         }
 
         rc = ngx_http_cache_tag_bootstrap_zone(writer, zone,
                                                (ngx_cycle_t *) ngx_cycle);
-        ngx_http_cache_tag_store_close(writer);
+        if (!ngx_http_cache_tag_is_owner()) {
+            ngx_http_cache_tag_store_close(writer);
+        }
+
         if (rc != NGX_OK) {
             return NGX_ERROR;
         }
@@ -323,7 +328,6 @@ ngx_http_cache_tag_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache) {
         }
     }
 
-    writer = NULL;
     purged = 0;
     path = paths->elts;
     for (i = 0; i < paths->nelts; i++) {
@@ -332,7 +336,6 @@ ngx_http_cache_tag_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache) {
         if (rc == NGX_OK) {
             purged++;
         } else if (rc != NGX_DECLINED) {
-            ngx_http_cache_tag_store_close(writer);
             return NGX_ERROR;
         }
 
@@ -341,23 +344,13 @@ ngx_http_cache_tag_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache) {
         }
 
         if (rc == NGX_OK || rc == NGX_DECLINED) {
-            if (writer == NULL) {
-                writer = ngx_http_cache_tag_store_open_writer(&pmcf->sqlite_path,
-                         r->connection->log);
-                if (writer == NULL) {
-                    return NGX_ERROR;
-                }
-            }
-
-            if (ngx_http_cache_tag_store_delete_file(writer, &zone->zone_name,
-                    &path[i], r->connection->log) != NGX_OK) {
-                ngx_http_cache_tag_store_close(writer);
+            rc = ngx_http_cache_tag_queue_enqueue_delete(pmcf,
+                    &zone->zone_name, &path[i], r->connection->log);
+            if (rc != NGX_OK) {
                 return NGX_ERROR;
             }
         }
     }
-
-    ngx_http_cache_tag_store_close(writer);
 
     return purged > 0 ? NGX_OK : NGX_DECLINED;
 #endif
