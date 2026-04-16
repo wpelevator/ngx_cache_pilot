@@ -204,27 +204,6 @@ ngx_http_cache_tag_headers_conf(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) 
     return NGX_CONF_OK;
 }
 
-char *
-ngx_http_cache_tag_watch_conf(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-    ngx_http_cache_purge_loc_conf_t  *cplcf;
-    ngx_str_t                        *value;
-
-    cplcf = conf;
-    value = cf->args->elts;
-
-    if (ngx_strcmp(value[1].data, "on") == 0) {
-        cplcf->cache_tag_watch = 1;
-        return NGX_CONF_OK;
-    }
-
-    if (ngx_strcmp(value[1].data, "off") == 0) {
-        cplcf->cache_tag_watch = 0;
-        return NGX_CONF_OK;
-    }
-
-    return "invalid value";
-}
-
 ngx_flag_t
 ngx_http_cache_tag_location_enabled(ngx_http_cache_purge_loc_conf_t *cplcf) {
     return cplcf->cache_tag_watch && cplcf->cache_tag_headers != NULL;

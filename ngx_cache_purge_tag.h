@@ -187,8 +187,6 @@ char *ngx_http_cache_tag_index_conf(ngx_conf_t *cf, ngx_command_t *cmd,
                                     void *conf);
 char *ngx_http_cache_tag_headers_conf(ngx_conf_t *cf, ngx_command_t *cmd,
                                       void *conf);
-char *ngx_http_cache_tag_watch_conf(ngx_conf_t *cf, ngx_command_t *cmd,
-                                    void *conf);
 ngx_flag_t ngx_http_cache_tag_location_enabled(
     ngx_http_cache_purge_loc_conf_t *cplcf);
 ngx_int_t ngx_http_cache_tag_request_headers(ngx_http_request_t *r,

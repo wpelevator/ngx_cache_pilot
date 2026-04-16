@@ -94,8 +94,6 @@ char       *ngx_http_uwsgi_cache_purge_conf(ngx_conf_t *cf,
 ngx_int_t   ngx_http_uwsgi_cache_purge_handler(ngx_http_request_t *r);
 # endif /* NGX_HTTP_UWSGI */
 
-char        *ngx_http_cache_purge_response_type_conf(ngx_conf_t *cf,
-        ngx_command_t *cmd, void *conf);
 char        *ngx_http_cache_purge_mode_header_conf(ngx_conf_t *cf,
         ngx_command_t *cmd, void *conf);
 static ngx_int_t
@@ -157,6 +155,14 @@ static ngx_int_t ngx_http_cache_purge_init_module(ngx_cycle_t *cycle);
 ngx_int_t   ngx_http_cache_purge_init_process(ngx_cycle_t *cycle);
 void        ngx_http_cache_purge_exit_process(ngx_cycle_t *cycle);
 
+static ngx_conf_enum_t  ngx_http_cache_purge_response_types[] = {
+    { ngx_string("html"), NGX_RESPONSE_TYPE_HTML },
+    { ngx_string("xml"),  NGX_RESPONSE_TYPE_XML  },
+    { ngx_string("json"), NGX_RESPONSE_TYPE_JSON },
+    { ngx_string("text"), NGX_RESPONSE_TYPE_TEXT },
+    { ngx_null_string,    0 }
+};
+
 static ngx_command_t  ngx_http_cache_purge_module_commands[] = {
     {
         ngx_string("cache_tag_index"),
@@ -177,9 +183,9 @@ static ngx_command_t  ngx_http_cache_purge_module_commands[] = {
     {
         ngx_string("cache_tag_watch"),
         NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
-        ngx_http_cache_tag_watch_conf,
+        ngx_conf_set_flag_slot,
         NGX_HTTP_LOC_CONF_OFFSET,
-        0,
+        offsetof(ngx_http_cache_purge_loc_conf_t, cache_tag_watch),
         NULL
     },
 
@@ -231,10 +237,10 @@ static ngx_command_t  ngx_http_cache_purge_module_commands[] = {
     {
         ngx_string("cache_purge_response_type"),
         NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
-        ngx_http_cache_purge_response_type_conf,
+        ngx_conf_set_enum_slot,
         NGX_HTTP_LOC_CONF_OFFSET,
-        0,
-        NULL
+        offsetof(ngx_http_cache_purge_loc_conf_t, resptype),
+        &ngx_http_cache_purge_response_types
     },
     {
         ngx_string("cache_purge_mode_header"),
@@ -1343,54 +1349,6 @@ ngx_http_uwsgi_cache_purge_handler(ngx_http_request_t *r) {
 }
 # endif /* NGX_HTTP_UWSGI */
 
-
-char *
-ngx_http_cache_purge_response_type_conf(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
-    ngx_http_cache_purge_loc_conf_t   *cplcf;
-    ngx_str_t                         *value;
-
-    cplcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_cache_purge_module);
-
-    /* check for duplicates / collisions */
-    if (cplcf->resptype != NGX_CONF_UNSET_UINT && cf->cmd_type == NGX_HTTP_LOC_CONF)  {
-        return "is duplicate";
-    }
-
-    /* sanity check */
-    if (cf->args->nelts < 2) {
-        return "is invalid paramter, ex) cache_purge_response_type (html|json|xml|text)";
-    }
-
-    if (cf->args->nelts > 2) {
-        return "is required only 1 option, ex) cache_purge_response_type (html|json|xml|text)";
-    }
-
-    value = cf->args->elts;
-
-    if (ngx_strcmp(value[1].data, "html") != 0 && ngx_strcmp(value[1].data, "json") != 0
-            && ngx_strcmp(value[1].data, "xml") != 0 && ngx_strcmp(value[1].data, "text") != 0) {
-        ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                           "invalid parameter \"%V\", expected"
-                           " \"(html|json|xml|text)\" keyword", &value[1]);
-        return NGX_CONF_ERROR;
-    }
-
-    if (cf->cmd_type == NGX_HTTP_MODULE) {
-        return "(separate server or location syntax) is not allowed here";
-    }
-
-    if (ngx_strcmp(value[1].data, "html") == 0) {
-        cplcf->resptype = NGX_RESPONSE_TYPE_HTML;
-    } else if (ngx_strcmp(value[1].data, "xml") == 0) {
-        cplcf->resptype = NGX_RESPONSE_TYPE_XML;
-    } else if (ngx_strcmp(value[1].data, "json") == 0) {
-        cplcf->resptype = NGX_RESPONSE_TYPE_JSON;
-    } else if (ngx_strcmp(value[1].data, "text") == 0) {
-        cplcf->resptype = NGX_RESPONSE_TYPE_TEXT;
-    }
-
-    return NGX_CONF_OK;
-}
 
 char *
 ngx_http_cache_purge_mode_header_conf(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
