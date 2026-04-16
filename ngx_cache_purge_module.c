@@ -1756,15 +1756,12 @@ ngx_http_cache_purge_send_response(ngx_http_request_t *r) {
     ngx_str_t    *key;
     ngx_int_t     rc;
     size_t        len;
-
-    size_t body_len;
-    size_t resp_tmpl_len;
-    u_char *buf;
-    u_char *buf_keydata;
-    const char *resp_ct;
-    size_t resp_ct_size;
-    const char *resp_body;
-    size_t resp_body_size;
+    u_char       *buf;
+    u_char       *buf_keydata;
+    const char   *resp_ct;
+    size_t        resp_ct_size;
+    const char   *resp_body;
+    size_t        resp_body_size;
 
     ngx_http_cache_purge_loc_conf_t   *cplcf;
     cplcf = ngx_http_get_module_loc_conf(r, ngx_http_cache_purge_module);
@@ -1814,20 +1811,20 @@ ngx_http_cache_purge_send_response(ngx_http_request_t *r) {
         break;
     }
 
-    body_len = resp_body_size - 2 - 1;
+    /* resp_body_size = sizeof(template) includes the trailing NUL.
+     * Subtract 1 for the NUL and 2 for the "%s" placeholder to get the
+     * length of the static parts; add the key length for the full body. */
+    len = (resp_body_size - 1) - 2 + key[0].len;
+
     r->headers_out.content_type.len = resp_ct_size - 1;
     r->headers_out.content_type.data = (u_char *) resp_ct;
 
-    resp_tmpl_len = body_len + key[0].len ;
-
-    buf = ngx_pcalloc(r->pool, resp_tmpl_len);
+    buf = ngx_pcalloc(r->pool, len + 1);
     if (buf == NULL) {
         return NGX_HTTP_INTERNAL_SERVER_ERROR;
     }
 
-    ngx_snprintf(buf, resp_tmpl_len, resp_body, buf_keydata);
-
-    len = body_len + key[0].len;
+    ngx_snprintf(buf, len + 1, resp_body, buf_keydata);
 
     r->headers_out.status = NGX_HTTP_OK;
     r->headers_out.content_length_n = len;
@@ -1848,7 +1845,7 @@ ngx_http_cache_purge_send_response(ngx_http_request_t *r) {
     out.buf = b;
     out.next = NULL;
 
-    b->last = ngx_cpymem(b->last, buf, resp_tmpl_len);
+    b->last = ngx_cpymem(b->last, buf, len);
     b->last_buf = 1;
 
     rc = ngx_http_send_header(r);
