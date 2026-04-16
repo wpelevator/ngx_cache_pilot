@@ -7,7 +7,6 @@
 #include <ngx_http.h>
 
 #if (NGX_LINUX)
-#include <sqlite3.h>
 #include <sys/inotify.h>
 #include <sys/stat.h>
 #include <dirent.h>
@@ -16,6 +15,8 @@
 
 typedef struct ngx_http_cache_tag_zone_s
     ngx_http_cache_tag_zone_t;
+typedef struct ngx_http_cache_tag_store_s
+    ngx_http_cache_tag_store_t;
 
 typedef struct {
     ngx_flag_t                    enable;
@@ -51,7 +52,25 @@ typedef struct {
 } ngx_http_cache_purge_loc_conf_t;
 
 typedef struct {
+    ngx_str_t                     endpoint;
+    ngx_str_t                     host;
+    ngx_str_t                     unix_path;
+    ngx_str_t                     password;
+    ngx_uint_t                    port;
+    ngx_uint_t                    db;
+    ngx_flag_t                    use_unix;
+} ngx_http_cache_tag_redis_conf_t;
+
+typedef enum {
+    NGX_HTTP_CACHE_TAG_BACKEND_NONE = 0,
+    NGX_HTTP_CACHE_TAG_BACKEND_SQLITE,
+    NGX_HTTP_CACHE_TAG_BACKEND_REDIS
+} ngx_http_cache_tag_backend_e;
+
+typedef struct {
+    ngx_http_cache_tag_backend_e  backend;
     ngx_str_t                     sqlite_path;
+    ngx_http_cache_tag_redis_conf_t redis;
     ngx_array_t                  *zones;
 #if (NGX_LINUX)
     ngx_shm_zone_t               *queue_zone;
@@ -65,21 +84,6 @@ struct ngx_http_cache_tag_zone_s {
 };
 
 #if (NGX_LINUX)
-
-typedef struct {
-    sqlite3_stmt                 *delete_file;
-    sqlite3_stmt                 *insert_entry;
-    sqlite3_stmt                 *collect_paths;
-    sqlite3_stmt                 *get_zone_state;
-    sqlite3_stmt                 *set_zone_state;
-} ngx_http_cache_tag_stmt_cache_t;
-
-typedef struct ngx_http_cache_tag_store_s {
-    sqlite3                      *db;
-    ngx_flag_t                    readonly;
-    ngx_flag_t                    schema_ready;
-    ngx_http_cache_tag_stmt_cache_t stmt;
-} ngx_http_cache_tag_store_t;
 
 typedef struct {
     ngx_flag_t                    bootstrap_complete;
@@ -193,12 +197,10 @@ ngx_int_t ngx_http_cache_purge_by_path(ngx_http_file_cache_t *cache,
 
 #if (NGX_LINUX)
 ngx_http_cache_tag_store_t *ngx_http_cache_tag_store_open_writer(
-    ngx_str_t *path, ngx_log_t *log);
+    ngx_http_cache_purge_main_conf_t *pmcf, ngx_log_t *log);
 ngx_http_cache_tag_store_t *ngx_http_cache_tag_store_open_reader(
-    ngx_str_t *path, ngx_log_t *log);
+    ngx_http_cache_purge_main_conf_t *pmcf, ngx_log_t *log);
 void ngx_http_cache_tag_store_close(ngx_http_cache_tag_store_t *store);
-ngx_int_t ngx_http_cache_tag_store_ensure_schema(
-    ngx_http_cache_tag_store_t *store, ngx_log_t *log);
 ngx_int_t ngx_http_cache_tag_store_begin_batch(
     ngx_http_cache_tag_store_t *store, ngx_log_t *log);
 ngx_int_t ngx_http_cache_tag_store_commit_batch(
@@ -241,6 +243,8 @@ ngx_int_t ngx_http_cache_tag_init_runtime(ngx_cycle_t *cycle,
 ngx_int_t ngx_http_cache_tag_flush_pending(ngx_cycle_t *cycle);
 void ngx_http_cache_tag_shutdown_runtime(void);
 ngx_flag_t ngx_http_cache_tag_is_owner(void);
+ngx_flag_t ngx_http_cache_tag_store_configured(
+    ngx_http_cache_purge_main_conf_t *pmcf);
 ngx_int_t ngx_http_cache_tag_queue_init_conf(
     ngx_conf_t *cf, ngx_http_cache_purge_main_conf_t *pmcf);
 ngx_int_t ngx_http_cache_tag_queue_enqueue_delete(

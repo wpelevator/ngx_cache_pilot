@@ -48,7 +48,7 @@ If the configured cache key ends with `$uri`, you can also purge by wildcard URI
 curl -i -X PURGE 'http://127.0.0.1:8080/articles/2026/*'
 ```
 
-If you want cache-tag purging, enable the SQLite-backed index and watch the cache directory:
+If you want cache-tag purging, enable an index backend and watch the cache directory:
 
 ```nginx
 http {
@@ -128,7 +128,7 @@ make install
 
 For a dynamic module build in this workflow, replace `--add-module` with `--add-dynamic-module` and use `make modules`.
 
-The repository `config` script links against `sqlite3`, so your build environment must provide the SQLite development library. The resulting dynamic module also depends on the system `libsqlite3` at runtime.
+The repository `config` script links against `sqlite3`, so your build environment must provide the SQLite development library. Redis support uses the module's built-in RESP client and does not add another native dependency. The resulting dynamic module still depends on the system `libsqlite3` when SQLite support is compiled in.
 
 If you want the included containerized build environment, tests, or the manual validation setup, see [Development](#development).
 
@@ -229,11 +229,11 @@ If configured:
 
 #### `cache_tag_index`
 
-- **syntax**: `cache_tag_index sqlite <path>`
+- **syntax**: `cache_tag_index sqlite <path>` or `cache_tag_index redis <endpoint> [db=<n>] [password=<secret>]`
 - **default**: `none`
 - **context**: `http`
 
-Enable cache-tag indexing backed by a SQLite database. This feature is currently Linux-only and requires a writable database path.
+Enable cache-tag indexing backed by SQLite or Redis. This feature is currently Linux-only. SQLite requires a writable database path. Redis currently supports a single instance over `host:port` or `unix:/path`, with optional `db=<n>` and `password=<secret>`, but no TLS, Sentinel, or Cluster support.
 
 #### `cache_tag_headers`
 
@@ -288,7 +288,7 @@ When `cache_tag_index` and `cache_tag_watch` are enabled:
 - cached response files are parsed for the headers listed in `cache_tag_headers`
 - `Surrogate-Key` values are parsed as comma- or whitespace-delimited tags
 - `Cache-Tag` values are parsed as comma- or whitespace-delimited tags
-- the module stores a tag-to-cache-file index in SQLite
+- the module stores a tag-to-cache-file index in SQLite or Redis
 - on Linux, a worker-owned `inotify` watcher keeps the index up to date as cache files are created, replaced, or removed
 
 To purge by tag, send a normal `PURGE` request and include one or more tag headers:
@@ -306,12 +306,13 @@ If a watched purge location receives a plain `PURGE` request without any of the 
 
 For tag-based purges, the configured `cache_purge_mode_header` can switch a request between soft and hard purge. Without that header, the configured purge mode is used.
 
-Hard tag purges use asynchronous owner-worker handoff for SQLite index deletes. A `200` response means the delete work was accepted for processing, not necessarily already persisted to SQLite.
+Hard tag purges use asynchronous owner-worker handoff for backend index deletes. A `200` response means the delete work was accepted for processing, not necessarily already persisted yet.
 
 Notes:
 
 - Cache-tag support currently requires Linux.
-- SQLite is the only supported tag index backend.
+- Supported tag index backends are SQLite and Redis.
+- Redis support currently targets a single instance over TCP or a Unix socket, with optional password auth and database selection.
 - The cache watcher keeps the index fresh during normal operation.
 - A cold-start bootstrap fallback scans the configured cache tree if a tag purge arrives before a zone has been indexed.
 
