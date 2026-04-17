@@ -23,7 +23,7 @@ ngx_http_cache_tag_index_conf(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 
 #if !(NGX_LINUX)
     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                       "cache_tag_index requires Linux inotify support");
+                       "cache_pilot_tag_index requires Linux inotify support");
     return NGX_CONF_ERROR;
 #else
 #if (NGX_CACHE_PURGE_SQLITE)
@@ -39,7 +39,7 @@ ngx_http_cache_tag_index_conf(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
 #else
     if (ngx_strcmp(value[1].data, "sqlite") == 0) {
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                           "cache_tag_index sqlite backend requires SQLite3 "
+                           "cache_pilot_tag_index sqlite backend requires SQLite3 "
                            "library (not found at build time)");
         return NGX_CONF_ERROR;
     }
@@ -50,7 +50,8 @@ ngx_http_cache_tag_index_conf(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) {
     }
 
     ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                       "invalid cache_tag_index backend \"%V\"", &value[1]);
+                       "invalid cache_pilot_tag_index backend \"%V\"",
+                       &value[1]);
     return NGX_CONF_ERROR;
 #endif
 }
@@ -173,7 +174,7 @@ ngx_http_cache_tag_index_conf_redis(ngx_conf_t *cf,
         }
 
         ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                           "unknown redis cache_tag_index option \"%V\"",
+                           "unknown redis cache_pilot_tag_index option \"%V\"",
                            &value[i]);
         return NGX_CONF_ERROR;
     }
@@ -299,7 +300,7 @@ ngx_http_cache_tag_register_cache(ngx_conf_t *cf, ngx_http_file_cache_t *cache,
         if (zones[i].cache == cache) {
             if (!ngx_http_cache_tag_headers_equal(zones[i].headers, headers)) {
                 ngx_conf_log_error(NGX_LOG_EMERG, cf, 0,
-                                   "cache_tag_headers must match for all watched locations using cache zone \"%V\"",
+                                   "cache_pilot_tag_headers must match for all watched locations using cache zone \"%V\"",
                                    &zones[i].zone_name);
                 return NGX_ERROR;
             }

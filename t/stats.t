@@ -34,11 +34,11 @@ our $config = <<'_EOC_';
     }
 
     location = /_stats {
-        cache_purge_stats;
+        cache_pilot_stats;
     }
 
     location = /_stats_filtered {
-        cache_purge_stats stats_test;
+        cache_pilot_stats stats_test;
     }
 _EOC_
 

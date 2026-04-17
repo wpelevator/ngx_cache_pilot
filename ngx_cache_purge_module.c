@@ -178,7 +178,7 @@ static ngx_conf_enum_t  ngx_http_cache_purge_response_types[] = {
 
 static ngx_command_t  ngx_http_cache_purge_module_commands[] = {
     {
-        ngx_string("cache_tag_index"),
+        ngx_string("cache_pilot_tag_index"),
         NGX_HTTP_MAIN_CONF|NGX_CONF_2MORE,
         ngx_http_cache_tag_index_conf,
         NGX_HTTP_MAIN_CONF_OFFSET,
@@ -186,7 +186,7 @@ static ngx_command_t  ngx_http_cache_purge_module_commands[] = {
         NULL
     },
     {
-        ngx_string("cache_tag_headers"),
+        ngx_string("cache_pilot_tag_headers"),
         NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_1MORE,
         ngx_http_cache_tag_headers_conf,
         NGX_HTTP_LOC_CONF_OFFSET,
@@ -194,7 +194,7 @@ static ngx_command_t  ngx_http_cache_purge_module_commands[] = {
         NULL
     },
     {
-        ngx_string("cache_tag_watch"),
+        ngx_string("cache_pilot_tag_watch"),
         NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
         ngx_conf_set_flag_slot,
         NGX_HTTP_LOC_CONF_OFFSET,
@@ -202,7 +202,7 @@ static ngx_command_t  ngx_http_cache_purge_module_commands[] = {
         NULL
     },
     {
-        ngx_string("cache_tag_queue_size"),
+        ngx_string("cache_pilot_tag_queue_size"),
         NGX_HTTP_MAIN_CONF|NGX_CONF_TAKE1,
         ngx_conf_set_size_slot,
         NGX_HTTP_MAIN_CONF_OFFSET,
@@ -256,7 +256,7 @@ static ngx_command_t  ngx_http_cache_purge_module_commands[] = {
 
 
     {
-        ngx_string("cache_purge_response_type"),
+        ngx_string("cache_pilot_purge_response_type"),
         NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
         ngx_conf_set_enum_slot,
         NGX_HTTP_LOC_CONF_OFFSET,
@@ -264,7 +264,7 @@ static ngx_command_t  ngx_http_cache_purge_module_commands[] = {
         &ngx_http_cache_purge_response_types
     },
     {
-        ngx_string("cache_purge_mode_header"),
+        ngx_string("cache_pilot_purge_mode_header"),
         NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_TAKE1,
         ngx_http_cache_purge_mode_header_conf,
         NGX_HTTP_LOC_CONF_OFFSET,
@@ -272,7 +272,7 @@ static ngx_command_t  ngx_http_cache_purge_module_commands[] = {
         NULL
     },
     {
-        ngx_string("cache_purge_stats"),
+        ngx_string("cache_pilot_stats"),
         NGX_HTTP_LOC_CONF|NGX_CONF_ANY,
         ngx_http_cache_purge_stats_conf,
         NGX_HTTP_LOC_CONF_OFFSET,
@@ -1119,7 +1119,7 @@ ngx_http_cache_purge_stats_conf(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) 
     }
 
     /*
-     * Optional zone name filters: cache_purge_stats zone1 zone2 ...
+    * Optional zone name filters: cache_pilot_stats zone1 zone2 ...
      * If no filter args are given, all discovered zones are included.
      */
     filters  = cf->args->nelts > 1 ? (ngx_str_t *) cf->args->elts + 1 : NULL;
@@ -1912,7 +1912,7 @@ ngx_http_cache_purge_init_module(ngx_cycle_t *cycle) {
     dir_len = (size_t)(p - pmcf->sqlite_path.data);
     if (dir_len >= sizeof(dir)) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                      "cache_tag_index sqlite: path too long");
+                      "cache_pilot_tag_index sqlite: path too long");
         return NGX_ERROR;
     }
 
@@ -1921,14 +1921,14 @@ ngx_http_cache_purge_init_module(ngx_cycle_t *cycle) {
 
     if (ngx_file_info(dir, &fi) == NGX_FILE_ERROR) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
-                      "cache_tag_index sqlite: directory \"%s\" not found",
+                      "cache_pilot_tag_index sqlite: directory \"%s\" not found",
                       dir);
         return NGX_ERROR;
     }
 
     if (!ngx_is_dir(&fi)) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                      "cache_tag_index sqlite: \"%s\" is not a directory",
+                      "cache_pilot_tag_index sqlite: \"%s\" is not a directory",
                       dir);
         return NGX_ERROR;
     }

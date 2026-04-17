@@ -28,7 +28,7 @@ our $config = <<'_EOC_';
         add_header         X-Cache-Status $upstream_cache_status;
 
         proxy_cache_purge  $purge_method soft;
-        cache_purge_mode_header X-Purge-Mode;
+        cache_pilot_purge_mode_header X-Purge-Mode;
     }
 
     location = /etc/passwd {

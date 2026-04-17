@@ -16,7 +16,7 @@ our $http_config = <<'_EOC_';
 _EOC_
 
 our $config = <<'_EOC_';
-    cache_purge_response_type json;
+    cache_pilot_purge_response_type json;
 
     location /proxy {
         proxy_pass         $scheme://127.0.0.1:$server_port/etc/passwd;
@@ -30,52 +30,52 @@ our $config = <<'_EOC_';
         proxy_cache                proxy_cache;
         proxy_cache_key            $1$is_args$args;
         proxy_cache_purge  1 soft;
-        cache_purge_mode_header    X-Purge-Mode;
-        cache_purge_response_type  html;
+        cache_pilot_purge_mode_header    X-Purge-Mode;
+        cache_pilot_purge_response_type  html;
     }
 
     location ~ /purge_proxy_json(/.*) {
         proxy_cache                proxy_cache;
         proxy_cache_key            $1$is_args$args;
         proxy_cache_purge  1 soft;
-        cache_purge_mode_header    X-Purge-Mode;
+        cache_pilot_purge_mode_header    X-Purge-Mode;
     }
 
     location ~ /purge_proxy_xml(/.*) {
         proxy_cache                proxy_cache;
         proxy_cache_key            $1$is_args$args;
         proxy_cache_purge  1 soft;
-        cache_purge_mode_header    X-Purge-Mode;
-        cache_purge_response_type  xml;
+        cache_pilot_purge_mode_header    X-Purge-Mode;
+        cache_pilot_purge_response_type  xml;
     }
 
     location ~ /purge_proxy_text(/.*) {
         proxy_cache                proxy_cache;
         proxy_cache_key            $1$is_args$args;
         proxy_cache_purge  1 soft;
-        cache_purge_mode_header    X-Purge-Mode;
-        cache_purge_response_type  text;
+        cache_pilot_purge_mode_header    X-Purge-Mode;
+        cache_pilot_purge_response_type  text;
     }
 
     location ~ /purge_fastcgi(/.*) {
         fastcgi_cache              fastcgi_cache;
         fastcgi_cache_key          $1$is_args$args;
         fastcgi_cache_purge  1 soft;
-        cache_purge_mode_header    X-Purge-Mode;
+        cache_pilot_purge_mode_header    X-Purge-Mode;
     }
 
     location ~ /purge_scgi(/.*) {
         scgi_cache                 scgi_cache;
         scgi_cache_key             $1$is_args$args;
         scgi_cache_purge  1 soft;
-        cache_purge_mode_header    X-Purge-Mode;
+        cache_pilot_purge_mode_header    X-Purge-Mode;
     }
 
     location ~ /purge_uwsgi(/.*) {
         uwsgi_cache                uwsgi_cache;
         uwsgi_cache_key            $1$is_args$args;
         uwsgi_cache_purge  1 soft;
-        cache_purge_mode_header    X-Purge-Mode;
+        cache_pilot_purge_mode_header    X-Purge-Mode;
     }
 
     location = /etc/passwd {
