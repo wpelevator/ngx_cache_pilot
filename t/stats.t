@@ -9,9 +9,9 @@ repeat_each(1);
 plan tests => repeat_each() * 56;
 
 our $http_config = <<'_EOC_';
-    proxy_cache_path  /tmp/ngx_cache_purge_stats_cache  keys_zone=stats_test:10m;
-    proxy_cache_path  /tmp/ngx_cache_purge_stats_cache2 keys_zone=stats_test2:10m;
-    proxy_temp_path   /tmp/ngx_cache_purge_stats_temp 1 2;
+    proxy_cache_path  /tmp/ngx_cache_pilot_stats_cache  keys_zone=stats_test:10m;
+    proxy_cache_path  /tmp/ngx_cache_pilot_stats_cache2 keys_zone=stats_test2:10m;
+    proxy_temp_path   /tmp/ngx_cache_pilot_stats_temp 1 2;
 _EOC_
 
 our $config = <<'_EOC_';

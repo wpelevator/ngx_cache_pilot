@@ -17,8 +17,8 @@ repeat_each(1);
 plan tests => repeat_each() * 118;
 
 our $http_config = <<'_EOC_';
-    proxy_cache_path  /tmp/ngx_cache_purge_cache_redis keys_zone=redis_cache:10m;
-    proxy_temp_path   /tmp/ngx_cache_purge_temp_redis 1 2;
+    proxy_cache_path  /tmp/ngx_cache_pilot_cache_redis keys_zone=redis_cache:10m;
+    proxy_temp_path   /tmp/ngx_cache_pilot_temp_redis 1 2;
     map $request_method $purge_method {
         PURGE   1;
         default 0;
@@ -30,8 +30,8 @@ our $http_config = <<'_EOC_';
 _EOC_
 
 our $http_config_hard = <<'_EOC_';
-    proxy_cache_path  /tmp/ngx_cache_purge_cache_redis keys_zone=redis_cache:10m;
-    proxy_temp_path   /tmp/ngx_cache_purge_temp_redis 1 2;
+    proxy_cache_path  /tmp/ngx_cache_pilot_cache_redis keys_zone=redis_cache:10m;
+    proxy_temp_path   /tmp/ngx_cache_pilot_temp_redis 1 2;
     map $request_method $purge_method {
         PURGE   1;
         default 0;
@@ -43,8 +43,8 @@ our $http_config_hard = <<'_EOC_';
 _EOC_
 
 our $http_config_restart = <<'_EOC_';
-    proxy_cache_path  /tmp/ngx_cache_purge_cache_redis keys_zone=redis_cache:10m;
-    proxy_temp_path   /tmp/ngx_cache_purge_temp_redis 1 2;
+    proxy_cache_path  /tmp/ngx_cache_pilot_cache_redis keys_zone=redis_cache:10m;
+    proxy_temp_path   /tmp/ngx_cache_pilot_temp_redis 1 2;
     map $request_method $purge_method {
         PURGE   1;
         default 0;
@@ -56,8 +56,8 @@ our $http_config_restart = <<'_EOC_';
 _EOC_
 
 our $http_config_plain = <<'_EOC_';
-    proxy_cache_path  /tmp/ngx_cache_purge_cache_redis keys_zone=redis_cache:10m;
-    proxy_temp_path   /tmp/ngx_cache_purge_temp_redis 1 2;
+    proxy_cache_path  /tmp/ngx_cache_pilot_cache_redis keys_zone=redis_cache:10m;
+    proxy_temp_path   /tmp/ngx_cache_pilot_temp_redis 1 2;
     map $request_method $purge_method {
         PURGE   1;
         default 0;
@@ -69,8 +69,8 @@ our $http_config_plain = <<'_EOC_';
 _EOC_
 
 our $http_config_custom = <<'_EOC_';
-    proxy_cache_path  /tmp/ngx_cache_purge_cache_redis keys_zone=redis_cache:10m;
-    proxy_temp_path   /tmp/ngx_cache_purge_temp_redis 1 2;
+    proxy_cache_path  /tmp/ngx_cache_pilot_cache_redis keys_zone=redis_cache:10m;
+    proxy_temp_path   /tmp/ngx_cache_pilot_temp_redis 1 2;
     map $request_method $purge_method {
         PURGE   1;
         default 0;
@@ -82,8 +82,8 @@ our $http_config_custom = <<'_EOC_';
 _EOC_
 
 our $http_config_cache_tag = <<'_EOC_';
-    proxy_cache_path  /tmp/ngx_cache_purge_cache_redis keys_zone=redis_cache:10m;
-    proxy_temp_path   /tmp/ngx_cache_purge_temp_redis 1 2;
+    proxy_cache_path  /tmp/ngx_cache_pilot_cache_redis keys_zone=redis_cache:10m;
+    proxy_temp_path   /tmp/ngx_cache_pilot_temp_redis 1 2;
     map $request_method $purge_method {
         PURGE   1;
         default 0;
@@ -95,8 +95,8 @@ our $http_config_cache_tag = <<'_EOC_';
 _EOC_
 
 our $http_config_multi_tag = <<'_EOC_';
-    proxy_cache_path  /tmp/ngx_cache_purge_cache_redis keys_zone=redis_cache:10m;
-    proxy_temp_path   /tmp/ngx_cache_purge_temp_redis 1 2;
+    proxy_cache_path  /tmp/ngx_cache_pilot_cache_redis keys_zone=redis_cache:10m;
+    proxy_temp_path   /tmp/ngx_cache_pilot_temp_redis 1 2;
     map $request_method $purge_method {
         PURGE   1;
         default 0;
@@ -158,8 +158,8 @@ our $config_multi_tag = <<'_EOC_';
 _EOC_
 
 our $http_config_overload = <<'_EOC_';
-    proxy_cache_path  /tmp/ngx_cache_purge_cache_redis_overload keys_zone=redis_overload_cache:10m;
-    proxy_temp_path   /tmp/ngx_cache_purge_temp_redis_overload 1 2;
+    proxy_cache_path  /tmp/ngx_cache_pilot_cache_redis_overload keys_zone=redis_overload_cache:10m;
+    proxy_temp_path   /tmp/ngx_cache_pilot_temp_redis_overload 1 2;
     map $request_method $purge_method {
         PURGE   1;
         default 0;

@@ -8,11 +8,11 @@ repeat_each(1);
 plan tests => repeat_each() * (blocks() * 4 + 5 * 1);
 
 our $http_config = <<'_EOC_';
-    proxy_cache_path    /tmp/ngx_cache_purge_proxy_cache keys_zone=proxy_cache:10m;
-    proxy_temp_path     /tmp/ngx_cache_purge_proxy_temp 1 2;
-    fastcgi_cache_path  /tmp/ngx_cache_purge_fastcgi_cache keys_zone=fastcgi_cache:10m;
-    scgi_cache_path     /tmp/ngx_cache_purge_scgi_cache keys_zone=scgi_cache:10m;
-    uwsgi_cache_path    /tmp/ngx_cache_purge_uwsgi_cache keys_zone=uwsgi_cache:10m;
+    proxy_cache_path    /tmp/ngx_cache_pilot_proxy_cache keys_zone=proxy_cache:10m;
+    proxy_temp_path     /tmp/ngx_cache_pilot_proxy_temp 1 2;
+    fastcgi_cache_path  /tmp/ngx_cache_pilot_fastcgi_cache keys_zone=fastcgi_cache:10m;
+    scgi_cache_path     /tmp/ngx_cache_pilot_scgi_cache keys_zone=scgi_cache:10m;
+    uwsgi_cache_path    /tmp/ngx_cache_pilot_uwsgi_cache keys_zone=uwsgi_cache:10m;
 _EOC_
 
 our $config = <<'_EOC_';
