@@ -301,17 +301,17 @@ ngx_http_cache_purge_write_prometheus(u_char *p, u_char *last,
 
     /* Global purge counters */
     p = ngx_slprintf(p, last,
-                     "# HELP nginx_cache_purge_purges_total"
+                     "# HELP nginx_cache_pilot_purges_total"
                      " Total cache purge operations\n"
-                     "# TYPE nginx_cache_purge_purges_total counter\n"
-                     "nginx_cache_purge_purges_total{type=\"exact\",mode=\"hard\"} %uA\n"
-                     "nginx_cache_purge_purges_total{type=\"exact\",mode=\"soft\"} %uA\n"
-                     "nginx_cache_purge_purges_total{type=\"wildcard\",mode=\"hard\"} %uA\n"
-                     "nginx_cache_purge_purges_total{type=\"wildcard\",mode=\"soft\"} %uA\n"
-                     "nginx_cache_purge_purges_total{type=\"tag\",mode=\"hard\"} %uA\n"
-                     "nginx_cache_purge_purges_total{type=\"tag\",mode=\"soft\"} %uA\n"
-                     "nginx_cache_purge_purges_total{type=\"all\",mode=\"hard\"} %uA\n"
-                     "nginx_cache_purge_purges_total{type=\"all\",mode=\"soft\"} %uA\n",
+                     "# TYPE nginx_cache_pilot_purges_total counter\n"
+                     "nginx_cache_pilot_purges_total{type=\"exact\",mode=\"hard\"} %uA\n"
+                     "nginx_cache_pilot_purges_total{type=\"exact\",mode=\"soft\"} %uA\n"
+                     "nginx_cache_pilot_purges_total{type=\"wildcard\",mode=\"hard\"} %uA\n"
+                     "nginx_cache_pilot_purges_total{type=\"wildcard\",mode=\"soft\"} %uA\n"
+                     "nginx_cache_pilot_purges_total{type=\"tag\",mode=\"hard\"} %uA\n"
+                     "nginx_cache_pilot_purges_total{type=\"tag\",mode=\"soft\"} %uA\n"
+                     "nginx_cache_pilot_purges_total{type=\"all\",mode=\"hard\"} %uA\n"
+                     "nginx_cache_pilot_purges_total{type=\"all\",mode=\"soft\"} %uA\n",
                      m ? ngx_cache_pilot_metrics_read(&m->purges_exact_hard)    : (ngx_atomic_uint_t)0,
                      m ? ngx_cache_pilot_metrics_read(&m->purges_exact_soft)    : (ngx_atomic_uint_t)0,
                      m ? ngx_cache_pilot_metrics_read(&m->purges_wildcard_hard) : (ngx_atomic_uint_t)0,
@@ -323,51 +323,51 @@ ngx_http_cache_purge_write_prometheus(u_char *p, u_char *last,
 
     /* Zone size */
     p = ngx_slprintf(p, last,
-                     "# HELP nginx_cache_purge_zone_size_bytes"
+                     "# HELP nginx_cache_pilot_zone_size_bytes"
                      " Current cache zone size in bytes\n"
-                     "# TYPE nginx_cache_purge_zone_size_bytes gauge\n");
+                     "# TYPE nginx_cache_pilot_zone_size_bytes gauge\n");
     for (i = 0; i < nzones; i++) {
         s = &snaps[i];
         p = ngx_slprintf(p, last,
-                         "nginx_cache_purge_zone_size_bytes{zone=\"%V\"} %O\n",
+                         "nginx_cache_pilot_zone_size_bytes{zone=\"%V\"} %O\n",
                          &s->name, s->size);
     }
 
     /* Zone max_size */
     p = ngx_slprintf(p, last,
-                     "# HELP nginx_cache_purge_zone_max_size_bytes"
+                     "# HELP nginx_cache_pilot_zone_max_size_bytes"
                      " Configured maximum cache zone size in bytes\n"
-                     "# TYPE nginx_cache_purge_zone_max_size_bytes gauge\n");
+                     "# TYPE nginx_cache_pilot_zone_max_size_bytes gauge\n");
     for (i = 0; i < nzones; i++) {
         s = &snaps[i];
         p = ngx_slprintf(p, last,
-                         "nginx_cache_purge_zone_max_size_bytes{zone=\"%V\"} %O\n",
+                         "nginx_cache_pilot_zone_max_size_bytes{zone=\"%V\"} %O\n",
                          &s->name, s->max_size);
     }
 
     /* Zone cold */
     p = ngx_slprintf(p, last,
-                     "# HELP nginx_cache_purge_zone_cold"
+                     "# HELP nginx_cache_pilot_zone_cold"
                      " 1 if the cache zone loader has not finished, 0 if warm\n"
-                     "# TYPE nginx_cache_purge_zone_cold gauge\n");
+                     "# TYPE nginx_cache_pilot_zone_cold gauge\n");
     for (i = 0; i < nzones; i++) {
         s = &snaps[i];
         p = ngx_slprintf(p, last,
-                         "nginx_cache_purge_zone_cold{zone=\"%V\"} %ui\n",
+                         "nginx_cache_pilot_zone_cold{zone=\"%V\"} %ui\n",
                          &s->name, s->cold);
     }
 
     /* Zone entries */
     p = ngx_slprintf(p, last,
-                     "# HELP nginx_cache_purge_zone_entries"
+                     "# HELP nginx_cache_pilot_zone_entries"
                      " Number of entries in the cache zone by state\n"
-                     "# TYPE nginx_cache_purge_zone_entries gauge\n");
+                     "# TYPE nginx_cache_pilot_zone_entries gauge\n");
     for (i = 0; i < nzones; i++) {
         s = &snaps[i];
         p = ngx_slprintf(p, last,
-                         "nginx_cache_purge_zone_entries{zone=\"%V\",state=\"valid\"} %ui\n"
-                         "nginx_cache_purge_zone_entries{zone=\"%V\",state=\"expired\"} %ui\n"
-                         "nginx_cache_purge_zone_entries{zone=\"%V\",state=\"updating\"} %ui\n",
+                         "nginx_cache_pilot_zone_entries{zone=\"%V\",state=\"valid\"} %ui\n"
+                         "nginx_cache_pilot_zone_entries{zone=\"%V\",state=\"expired\"} %ui\n"
+                         "nginx_cache_pilot_zone_entries{zone=\"%V\",state=\"updating\"} %ui\n",
                          &s->name, s->entries_valid,
                          &s->name, s->entries_expired,
                          &s->name, s->entries_updating);
@@ -382,12 +382,12 @@ ngx_http_cache_purge_write_prometheus(u_char *p, u_char *last,
 
         if (i == 0 || !snaps[i - 1].has_tag_index) {
             p = ngx_slprintf(p, last,
-                             "# HELP nginx_cache_purge_tag_index_info"
+                             "# HELP nginx_cache_pilot_tag_index_info"
                              " Static metadata about the configured tag index backend (always 1)\n"
-                             "# TYPE nginx_cache_purge_tag_index_info gauge\n");
+                             "# TYPE nginx_cache_pilot_tag_index_info gauge\n");
         }
         p = ngx_slprintf(p, last,
-                         "nginx_cache_purge_tag_index_info"
+                         "nginx_cache_pilot_tag_index_info"
                          "{zone=\"%V\",backend=\"%s\"} 1\n",
                          &s->name,
                          ngx_http_cache_purge_backend_str(s->tag_backend));
@@ -401,12 +401,12 @@ ngx_http_cache_purge_write_prometheus(u_char *p, u_char *last,
 
         if (i == 0 || !snaps[i - 1].has_tag_index) {
             p = ngx_slprintf(p, last,
-                             "# HELP nginx_cache_purge_tag_queue_size"
+                             "# HELP nginx_cache_pilot_tag_queue_size"
                              " Current number of pending tag index operations in the queue\n"
-                             "# TYPE nginx_cache_purge_tag_queue_size gauge\n");
+                             "# TYPE nginx_cache_pilot_tag_queue_size gauge\n");
         }
         p = ngx_slprintf(p, last,
-                         "nginx_cache_purge_tag_queue_size{zone=\"%V\"} %ui\n",
+                         "nginx_cache_pilot_tag_queue_size{zone=\"%V\"} %ui\n",
                          &s->name, s->queue_size);
     }
 
@@ -418,12 +418,12 @@ ngx_http_cache_purge_write_prometheus(u_char *p, u_char *last,
 
         if (i == 0 || !snaps[i - 1].has_tag_index) {
             p = ngx_slprintf(p, last,
-                             "# HELP nginx_cache_purge_tag_queue_capacity"
+                             "# HELP nginx_cache_pilot_tag_queue_capacity"
                              " Maximum capacity of the tag index operation queue\n"
-                             "# TYPE nginx_cache_purge_tag_queue_capacity gauge\n");
+                             "# TYPE nginx_cache_pilot_tag_queue_capacity gauge\n");
         }
         p = ngx_slprintf(p, last,
-                         "nginx_cache_purge_tag_queue_capacity{zone=\"%V\"} %ui\n",
+                         "nginx_cache_pilot_tag_queue_capacity{zone=\"%V\"} %ui\n",
                          &s->name, s->queue_capacity);
     }
 
@@ -435,12 +435,12 @@ ngx_http_cache_purge_write_prometheus(u_char *p, u_char *last,
 
         if (i == 0 || !snaps[i - 1].has_tag_index) {
             p = ngx_slprintf(p, last,
-                             "# HELP nginx_cache_purge_tag_queue_dropped_total"
+                             "# HELP nginx_cache_pilot_tag_queue_dropped_total"
                              " Tag index operations dropped due to queue overflow\n"
-                             "# TYPE nginx_cache_purge_tag_queue_dropped_total counter\n");
+                             "# TYPE nginx_cache_pilot_tag_queue_dropped_total counter\n");
         }
         p = ngx_slprintf(p, last,
-                         "nginx_cache_purge_tag_queue_dropped_total{zone=\"%V\"} %ui\n",
+                         "nginx_cache_pilot_tag_queue_dropped_total{zone=\"%V\"} %ui\n",
                          &s->name, s->queue_dropped);
     }
 
