@@ -100,13 +100,13 @@ char        *ngx_http_cache_pilot_mode_header_conf(ngx_conf_t *cf,
 char        *ngx_http_cache_pilot_stats_conf(ngx_conf_t *cf,
         ngx_command_t *cmd, void *conf);
 static ngx_int_t
-ngx_http_purge_file_cache_noop(ngx_tree_ctx_t *ctx, ngx_str_t *path);
+ngx_http_cache_pilot_file_cache_noop(ngx_tree_ctx_t *ctx, ngx_str_t *path);
 static ngx_int_t
-ngx_http_purge_file_cache_delete_file(ngx_tree_ctx_t *ctx, ngx_str_t *path);
+ngx_http_cache_pilot_file_cache_delete_file(ngx_tree_ctx_t *ctx, ngx_str_t *path);
 static ngx_int_t
-ngx_http_purge_file_cache_soft_file(ngx_tree_ctx_t *ctx, ngx_str_t *path);
+ngx_http_cache_pilot_file_cache_soft_file(ngx_tree_ctx_t *ctx, ngx_str_t *path);
 static ngx_int_t
-ngx_http_purge_file_cache_soft_partial_file(ngx_tree_ctx_t *ctx, ngx_str_t *path);
+ngx_http_cache_pilot_file_cache_soft_partial_file(ngx_tree_ctx_t *ctx, ngx_str_t *path);
 static ngx_int_t
 ngx_http_cache_pilot_soft_path(ngx_http_file_cache_t *cache, ngx_str_t *path,
                                ngx_log_t *log);
@@ -143,8 +143,8 @@ ngx_int_t   ngx_http_cache_pilot_init(ngx_http_request_t *r,
                                       ngx_http_file_cache_t *cache, ngx_http_complex_value_t *cache_key);
 void        ngx_http_cache_pilot_handler(ngx_http_request_t *r);
 
-ngx_int_t   ngx_http_file_cache_purge(ngx_http_request_t *r);
-ngx_int_t   ngx_http_file_cache_purge_soft(ngx_http_request_t *r);
+ngx_int_t   ngx_http_cache_pilot_exact_purge(ngx_http_request_t *r);
+ngx_int_t   ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r);
 
 
 ngx_int_t   ngx_http_cache_pilot_all(ngx_http_request_t *r, ngx_http_file_cache_t *cache);
@@ -1196,12 +1196,13 @@ ngx_http_cache_pilot_stats_conf(ngx_conf_t *cf, ngx_command_t *cmd, void *conf) 
 }
 
 static ngx_int_t
-ngx_http_purge_file_cache_noop(ngx_tree_ctx_t *ctx, ngx_str_t *path) {
+ngx_http_cache_pilot_file_cache_noop(ngx_tree_ctx_t *ctx, ngx_str_t *path) {
     return NGX_OK;
 }
 
 static ngx_int_t
-ngx_http_purge_file_cache_delete_file(ngx_tree_ctx_t *ctx, ngx_str_t *path) {
+ngx_http_cache_pilot_file_cache_delete_file(ngx_tree_ctx_t *ctx,
+        ngx_str_t *path) {
     ngx_log_debug1(NGX_LOG_DEBUG_HTTP, ctx->log, 0,
                    "http file cache delete: \"%s\"", path->data);
 
@@ -1232,7 +1233,8 @@ typedef struct {
 #endif
 
 static ngx_int_t
-ngx_http_purge_file_cache_delete_partial_file(ngx_tree_ctx_t *ctx, ngx_str_t *path) {
+ngx_http_cache_pilot_file_cache_delete_partial_file(ngx_tree_ctx_t *ctx,
+        ngx_str_t *path) {
     if (!ngx_http_cache_pilot_partial_match(ctx->data, path, ctx->log)) {
         return NGX_OK;
     }
@@ -1246,7 +1248,8 @@ ngx_http_purge_file_cache_delete_partial_file(ngx_tree_ctx_t *ctx, ngx_str_t *pa
 }
 
 static ngx_int_t
-ngx_http_purge_file_cache_soft_file(ngx_tree_ctx_t *ctx, ngx_str_t *path) {
+ngx_http_cache_pilot_file_cache_soft_file(ngx_tree_ctx_t *ctx,
+        ngx_str_t *path) {
     ngx_http_cache_pilot_partial_ctx_t *data;
 
     data = ctx->data;
@@ -1255,7 +1258,8 @@ ngx_http_purge_file_cache_soft_file(ngx_tree_ctx_t *ctx, ngx_str_t *path) {
 }
 
 static ngx_int_t
-ngx_http_purge_file_cache_soft_partial_file(ngx_tree_ctx_t *ctx, ngx_str_t *path) {
+ngx_http_cache_pilot_file_cache_soft_partial_file(ngx_tree_ctx_t *ctx,
+        ngx_str_t *path) {
     ngx_http_cache_pilot_partial_ctx_t *data;
 
     data = ctx->data;
@@ -1304,11 +1308,11 @@ ngx_http_cache_pilot_partial_thread(void *data, ngx_log_t *log) {
     ngx_memzero(&tree, sizeof(ngx_tree_ctx_t));
     tree.init_handler = NULL;
     tree.file_handler = ctx->soft
-                        ? ngx_http_purge_file_cache_soft_partial_file
-                        : ngx_http_purge_file_cache_delete_partial_file;
-    tree.pre_tree_handler = ngx_http_purge_file_cache_noop;
-    tree.post_tree_handler = ngx_http_purge_file_cache_noop;
-    tree.spec_handler = ngx_http_purge_file_cache_noop;
+                        ? ngx_http_cache_pilot_file_cache_soft_partial_file
+                        : ngx_http_cache_pilot_file_cache_delete_partial_file;
+    tree.pre_tree_handler = ngx_http_cache_pilot_file_cache_noop;
+    tree.post_tree_handler = ngx_http_cache_pilot_file_cache_noop;
+    tree.spec_handler = ngx_http_cache_pilot_file_cache_noop;
     tree.data = &ctx->partial;
     tree.alloc = 0;
     tree.log = log;
@@ -2011,9 +2015,9 @@ ngx_http_cache_pilot_handler(ngx_http_request_t *r) {
         rc = NGX_OK;
     } else if (!cplcf->conf->purge_all && !ngx_http_cache_pilot_is_partial(r)) {
         if (mode) {
-            rc = ngx_http_file_cache_purge_soft(r);
+            rc = ngx_http_cache_pilot_exact_purge_soft(r);
         } else {
-            rc = ngx_http_file_cache_purge(r);
+            rc = ngx_http_cache_pilot_exact_purge(r);
         }
 
         ngx_log_debug2(NGX_LOG_DEBUG_HTTP, r->connection->log, 0,
@@ -2040,7 +2044,7 @@ ngx_http_cache_pilot_handler(ngx_http_request_t *r) {
 }
 
 ngx_int_t
-ngx_http_file_cache_purge(ngx_http_request_t *r) {
+ngx_http_cache_pilot_exact_purge(ngx_http_request_t *r) {
     ngx_http_file_cache_t  *cache;
     ngx_http_cache_t       *c;
 
@@ -2113,7 +2117,7 @@ ngx_http_file_cache_purge(ngx_http_request_t *r) {
 }
 
 ngx_int_t
-ngx_http_file_cache_purge_soft(ngx_http_request_t *r) {
+ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
     ngx_int_t              rc;
     ngx_http_file_cache_t  *cache;
     ngx_http_cache_t       *c;
@@ -2263,11 +2267,11 @@ ngx_http_cache_pilot_all(ngx_http_request_t *r, ngx_http_file_cache_t *cache) {
     ngx_tree_ctx_t  tree;
     tree.init_handler = NULL;
     tree.file_handler = cplcf->conf->soft
-                        ? ngx_http_purge_file_cache_soft_file
-                        : ngx_http_purge_file_cache_delete_file;
-    tree.pre_tree_handler = ngx_http_purge_file_cache_noop;
-    tree.post_tree_handler = ngx_http_purge_file_cache_noop;
-    tree.spec_handler = ngx_http_purge_file_cache_noop;
+                        ? ngx_http_cache_pilot_file_cache_soft_file
+                        : ngx_http_cache_pilot_file_cache_delete_file;
+    tree.pre_tree_handler = ngx_http_cache_pilot_file_cache_noop;
+    tree.post_tree_handler = ngx_http_cache_pilot_file_cache_noop;
+    tree.spec_handler = ngx_http_cache_pilot_file_cache_noop;
     tree.data = &ctx;
     tree.alloc = 0;
     tree.log = ngx_cycle->log;
@@ -2391,11 +2395,11 @@ ngx_http_cache_pilot_partial(ngx_http_request_t *r, ngx_http_file_cache_t *cache
     /* Walk the tree and remove all the files matching key_partial */
     tree.init_handler = NULL;
     tree.file_handler = soft
-                        ? ngx_http_purge_file_cache_soft_partial_file
-                        : ngx_http_purge_file_cache_delete_partial_file;
-    tree.pre_tree_handler = ngx_http_purge_file_cache_noop;
-    tree.post_tree_handler = ngx_http_purge_file_cache_noop;
-    tree.spec_handler = ngx_http_purge_file_cache_noop;
+                        ? ngx_http_cache_pilot_file_cache_soft_partial_file
+                        : ngx_http_cache_pilot_file_cache_delete_partial_file;
+    tree.pre_tree_handler = ngx_http_cache_pilot_file_cache_noop;
+    tree.post_tree_handler = ngx_http_cache_pilot_file_cache_noop;
+    tree.spec_handler = ngx_http_cache_pilot_file_cache_noop;
     tree.data = ctx;
     tree.alloc = 0;
     tree.log = ngx_cycle->log;

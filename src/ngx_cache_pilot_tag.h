@@ -49,7 +49,7 @@ typedef struct {
     ngx_array_t                  *cache_tag_headers;
     ngx_str_t                     purge_mode_header;
 
-    /* cache_purge_stats: zones registered for the metrics endpoint */
+    /* cache_pilot_stats: zones registered for the metrics endpoint */
     ngx_array_t                  *stat_zones;  /* ngx_http_cache_pilot_stat_zone_t */
 } ngx_http_cache_pilot_loc_conf_t;
 
