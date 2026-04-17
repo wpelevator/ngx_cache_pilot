@@ -297,7 +297,7 @@ static ngx_http_module_t  ngx_http_cache_purge_module_ctx = {
     ngx_http_cache_purge_merge_loc_conf    /* merge location configuration */
 };
 
-ngx_module_t  ngx_http_cache_purge_module = {
+ngx_module_t  ngx_http_cache_pilot_module = {
     NGX_MODULE_V1,
     &ngx_http_cache_purge_module_ctx,      /* module context */
     ngx_http_cache_purge_module_commands,  /* module directives */
@@ -3035,7 +3035,7 @@ static ngx_http_module_t  ngx_http_cache_purge_module_ctx = {
     NULL,  /* merge location configuration */
 };
 
-ngx_module_t  ngx_http_cache_purge_module = {
+ngx_module_t  ngx_http_cache_pilot_module = {
     NGX_MODULE_V1,
     &ngx_http_cache_purge_module_ctx,  /* module context */
     NULL,                              /* module directives */

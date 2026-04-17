@@ -204,7 +204,7 @@ typedef struct {
 
 #endif
 
-extern ngx_module_t ngx_http_cache_purge_module;
+extern ngx_module_t ngx_http_cache_pilot_module;
 
 char *ngx_http_cache_tag_index_conf(ngx_conf_t *cf, ngx_command_t *cmd,
                                     void *conf);
