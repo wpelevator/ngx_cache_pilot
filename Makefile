@@ -48,8 +48,8 @@ nginx-version:
 	"$(NGINX_BUILD_PREFIX)/sbin/nginx" -V
 
 format:
-	astyle -v --options=.astylerc ./*.c
-	dos2unix ./*.c
+	astyle -v --options=.astylerc ./src/*.c
+	dos2unix ./src/*.c ./src/*.h
 
 test:
 	$(MAKE) nginx-build >/tmp/nginx-build.log
