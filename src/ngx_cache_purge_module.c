@@ -121,7 +121,7 @@ ngx_http_cache_purge_filename_key(ngx_str_t *path, u_char *key);
 static ngx_int_t
 ngx_http_cache_purge_partial_match(ngx_http_cache_purge_partial_ctx_t *data,
                                    ngx_str_t *path, ngx_log_t *log);
-#if (NGX_CACHE_PURGE_THREADS)
+#if (NGX_CACHE_PILOT_THREADS)
 static ngx_thread_pool_t *ngx_http_cache_purge_thread_pool(
     ngx_http_request_t *r);
 static void ngx_http_cache_purge_partial_thread(void *data, ngx_log_t *log);
@@ -1222,7 +1222,7 @@ struct ngx_http_cache_purge_partial_ctx_s {
     ngx_uint_t key_len;
 };
 
-#if (NGX_CACHE_PURGE_THREADS)
+#if (NGX_CACHE_PILOT_THREADS)
 typedef struct {
     ngx_http_request_t                 *request;
     ngx_http_cache_purge_partial_ctx_t  partial;
@@ -1267,7 +1267,7 @@ ngx_http_purge_file_cache_soft_partial_file(ngx_tree_ctx_t *ctx, ngx_str_t *path
     return ngx_http_cache_purge_soft_path(data->cache, path, ctx->log);
 }
 
-#if (NGX_CACHE_PURGE_THREADS)
+#if (NGX_CACHE_PILOT_THREADS)
 
 static ngx_thread_pool_t *
 ngx_http_cache_purge_thread_pool(ngx_http_request_t *r) {
@@ -1368,7 +1368,7 @@ ngx_http_cache_purge_partial_completion(ngx_event_t *ev) {
     ngx_http_run_posted_requests(c);
 }
 
-#endif /* NGX_CACHE_PURGE_THREADS */
+#endif /* NGX_CACHE_PILOT_THREADS */
 
 static ngx_int_t
 ngx_http_cache_purge_partial_match(ngx_http_cache_purge_partial_ctx_t *data,
@@ -2299,7 +2299,7 @@ ngx_http_cache_purge_partial(ngx_http_request_t *r, ngx_http_file_cache_t *cache
     ngx_str_t                            key;
     ngx_int_t                            soft;
     ngx_tree_ctx_t                       tree;
-#if (NGX_CACHE_PURGE_THREADS)
+#if (NGX_CACHE_PILOT_THREADS)
     ngx_thread_pool_t                   *tp;
     ngx_thread_task_t                   *task;
     ngx_http_cache_purge_partial_task_ctx_t *tctx;
@@ -2324,7 +2324,7 @@ ngx_http_cache_purge_partial(ngx_http_request_t *r, ngx_http_file_cache_t *cache
     cplcf = ngx_http_get_module_loc_conf(r, ngx_http_cache_purge_module);
     soft = ngx_http_cache_purge_request_mode(r, cplcf->conf->soft);
 
-#if (NGX_CACHE_PURGE_THREADS)
+#if (NGX_CACHE_PILOT_THREADS)
     /* If a thread pool is available, offload the blocking directory walk.
      * Falls through to the synchronous path when no pool is configured. */
     tp = ngx_http_cache_purge_thread_pool(r);

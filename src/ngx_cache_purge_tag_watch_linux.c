@@ -725,7 +725,7 @@ ngx_http_cache_tag_arm_watch(ngx_cycle_t *cycle) {
     return NGX_OK;
 }
 
-#if (NGX_CACHE_PURGE_THREADS)
+#if (NGX_CACHE_PILOT_THREADS)
 
 typedef struct {
     ngx_cycle_t                       *cycle;
@@ -826,7 +826,7 @@ ngx_http_cache_tag_bootstrap_complete(ngx_event_t *ev) {
     ngx_http_cache_tag_watch_runtime.active = 1;
 }
 
-#endif /* NGX_CACHE_PURGE_THREADS */
+#endif /* NGX_CACHE_PILOT_THREADS */
 
 ngx_int_t
 ngx_http_cache_tag_init_runtime(ngx_cycle_t *cycle,
@@ -835,7 +835,7 @@ ngx_http_cache_tag_init_runtime(ngx_cycle_t *cycle,
     ngx_http_cache_tag_store_t       *writer;
     ngx_http_cache_tag_zone_state_t   state;
     ngx_uint_t                        i;
-#if (NGX_CACHE_PURGE_THREADS)
+#if (NGX_CACHE_PILOT_THREADS)
     ngx_thread_pool_t                *tp;
     ngx_thread_task_t                *task;
     ngx_http_cache_tag_bootstrap_ctx_t *bctx;
@@ -905,7 +905,7 @@ ngx_http_cache_tag_init_runtime(ngx_cycle_t *cycle,
         return NGX_ERROR;
     }
 
-#if (NGX_CACHE_PURGE_THREADS)
+#if (NGX_CACHE_PILOT_THREADS)
     /* Try to offload the blocking bootstrap walk to the default thread pool.
      * If the thread pool is unavailable (nginx not built with --with-threads,
      * or no "thread_pool default" directive), fall through to the sync path. */
