@@ -3,7 +3,7 @@
 [![CI](https://github.com/kasparsd/ngx_cache_pilot/actions/workflows/ci.yml/badge.svg)](https://github.com/kasparsd/ngx_cache_pilot/actions/workflows/ci.yml)
 [![Bench](https://github.com/kasparsd/ngx_cache_pilot/actions/workflows/bench.yml/badge.svg)](https://github.com/kasparsd/ngx_cache_pilot/actions/workflows/bench.yml)
 
-`ngx_cache_pilot` is an `nginx` module that adds cache purge support for `FastCGI`, `proxy`, `SCGI`, and `uWSGI` caches. A purge operation removes or expires cached content that matches the cache key, wildcard key, or configured cache tags for the request.
+`ngx_cache_pilot` is an `nginx` module that adds cache purge support for [`fastcgi_cache`](https://nginx.org/en/docs/http/ngx_http_fastcgi_module.html), [`proxy_cache`](https://nginx.org/en/docs/http/ngx_http_proxy_module.html), [`scgi_cache`](https://nginx.org/en/docs/http/ngx_http_scgi_module.html), and [`uwsgi_cache`](https://nginx.org/en/docs/http/ngx_http_uwsgi_module.html) caches. A purge operation removes or expires cached content that matches the cache key, wildcard key, or configured cache tags for the request.
 
 _This module is not distributed with the NGINX source. See [Installation Instructions](#installation-instructions)._
 
