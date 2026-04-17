@@ -131,7 +131,7 @@ cd nginx-1.28.1
 make modules
 ```
 
-This produces `objs/ngx_http_cache_purge_module.so`, which you can then copy into your nginx modules directory and load with `load_module`.
+This produces `objs/ngx_http_cache_pilot_module.so`, which you can then copy into your nginx modules directory and load with `load_module`.
 
 ### Alternative: build NGINX from source with this module
 
