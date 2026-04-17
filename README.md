@@ -24,19 +24,20 @@ For most users, the simplest starting point is a cached location plus a `PURGE` 
 ```nginx
 http {
     proxy_cache_path /tmp/cache keys_zone=tmpcache:10m;
-    map $request_method $purge_method {
-        PURGE   1;
-        default 0;
+
+    # Restrict purging to specific IPs and the PURGE method.
+    map $request_method:$remote_addr $purge_request {
+        default         0;
+        PURGE:127.0.0.1 1;
     }
 
     server {
         listen 8080;
 
         location / {
-            proxy_pass         http://127.0.0.1:8000;
-            proxy_cache        tmpcache;
-            proxy_cache_key    "$uri$is_args$args";
-            proxy_cache_purge  $purge_method;
+            proxy_pass http://127.0.0.1:8000;
+            proxy_cache tmpcache;
+            proxy_cache_purge $purge_request;
         }
     }
 }
@@ -59,20 +60,28 @@ If you want cache-tag purging, enable an index backend and watch the cache direc
 ```nginx
 http {
     proxy_cache_path /tmp/cache keys_zone=tmpcache:10m;
-    map $request_method $purge_method {
-        PURGE   1;
-        default 0;
-    }
+
+    # Storage for cache tag index (map of cache tags to files)
     cache_pilot_tag_index  sqlite /tmp/ngx_cache_pilot_tags.sqlite;
+
+    map $request_method:$remote_addr $purge_request {
+        default         0;
+        PURGE:127.0.0.1 1;
+    }
 
     server {
         location /tagged/ {
-            proxy_pass         http://127.0.0.1:8000;
-            proxy_cache        tmpcache;
-            proxy_cache_key    "$uri$is_args$args";
-            proxy_cache_purge  $purge_method soft;
+            proxy_pass http://127.0.0.1:8000;
+            proxy_cache tmpcache;
+
+            # Do hard purge by default.
+            proxy_cache_purge $purge_request;
+
+            # Use this header to enable soft purge.
             cache_pilot_purge_mode_header X-Purge-Mode;
-            cache_pilot_tag_watch    on;
+            
+            # Enable cache tag indexing and purging.
+            cache_pilot_tag_watch on;
         }
     }
 }
@@ -473,17 +482,16 @@ Use these as compact starting points after Quick Start.
 ```nginx
 http {
     proxy_cache_path /tmp/cache keys_zone=tmpcache:10m;
-    map $request_method $purge_method {
-        PURGE   1;
-        default 0;
+    map $request_method:$remote_addr $purge_request {
+        default         0;
+        PURGE:127.0.0.1 1;
     }
 
     server {
         location / {
-            proxy_pass         http://127.0.0.1:8000;
-            proxy_cache        tmpcache;
-            proxy_cache_key    "$uri$is_args$args";
-            proxy_cache_purge  $purge_method;
+            proxy_pass http://127.0.0.1:8000;
+            proxy_cache tmpcache;
+            proxy_cache_purge $purge_request;
         }
     }
 }
@@ -496,22 +504,19 @@ Use `soft` if you want matching entries to expire in place, or add `purge_all` i
 ```nginx
 http {
     proxy_cache_path /tmp/cache keys_zone=tmpcache:10m;
-    map $request_method $purge_method {
-        PURGE   1;
-        default 0;
-    }
 
     server {
         location / {
-            proxy_pass         http://127.0.0.1:8000;
-            proxy_cache        tmpcache;
-            proxy_cache_key    "$uri$is_args$args";
+            proxy_pass http://127.0.0.1:8000;
+            proxy_cache tmpcache;
         }
 
         location ~ /purge(/.*) {
-            proxy_cache        tmpcache;
-            proxy_cache_key    "$1$is_args$args";
-            proxy_cache_purge  $purge_method;
+            allow 127.0.0.1;
+            deny all;
+
+            proxy_cache tmpcache;
+            proxy_cache_purge $purge_request;
         }
     }
 }
