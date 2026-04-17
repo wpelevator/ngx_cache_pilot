@@ -17,8 +17,7 @@ This is a fork of the [`ngx_cache_purge` module](https://github.com/nginx-module
 
 - exact URI purge
 - wildcard URI purge using a trailing `*`
-- cache-tag purge
-- surrogate-key purge
+- cache-tag and surrogate-key purge
 
 For most users, the simplest starting point is a cached location plus a `PURGE` method restricted to trusted clients.
 
