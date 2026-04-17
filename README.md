@@ -596,7 +596,7 @@ The benchmark suite now uses two explicit nginx templates: `bench/nginx.conf` fo
 
 ### Docker Validation Config
 
-For manual validation inside the development container, the repository includes an example nginx configuration at `examples/docker-validation.conf`.
+For manual validation inside the development container, the repository includes an example nginx configuration at `examples/kitchen-sink.conf`.
 
 It defaults to SQLite for tag indexing and includes a commented Redis alternative:
 
@@ -623,7 +623,7 @@ Start it inside the container after building nginx:
 make shell
 make nginx-build
 rm -rf /tmp/ngx_cache_*
-/opt/nginx/sbin/nginx -p /tmp -c /workspace/examples/docker-validation.conf
+/opt/nginx/sbin/nginx -p /tmp -c /workspace/examples/kitchen-sink.conf
 ```
 
 For Redis-backed validation, start the sidecar first, switch `cache_pilot_tag_index` in the example config to the commented Redis line, and clear the selected database before starting nginx:
@@ -634,7 +634,7 @@ make shell
 make nginx-build
 redis-cli -h redis -p 6379 -n 10 FLUSHDB
 rm -rf /tmp/ngx_cache_*
-/opt/nginx/sbin/nginx -p /tmp -c /workspace/examples/docker-validation.conf
+/opt/nginx/sbin/nginx -p /tmp -c /workspace/examples/kitchen-sink.conf
 ```
 
 Exact-key soft purge flow:
