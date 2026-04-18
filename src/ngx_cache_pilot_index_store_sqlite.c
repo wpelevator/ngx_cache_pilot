@@ -112,9 +112,11 @@ ngx_http_cache_index_store_sqlite_close(ngx_http_cache_index_store_t *store) {
 static ngx_int_t
 ngx_http_cache_index_store_sqlite_ensure_schema(ngx_http_cache_index_store_t *store,
         ngx_log_t *log) {
-    static const char *schema[] = {
+    static const char *pragmas[] = {
         "PRAGMA journal_mode=WAL;",
         "PRAGMA synchronous=NORMAL;",
+    };
+    static const char *schema[] = {
         "CREATE TABLE IF NOT EXISTS cache_tag_entries ("
         " zone TEXT NOT NULL,"
         " tag TEXT NOT NULL,"
@@ -142,18 +144,53 @@ ngx_http_cache_index_store_sqlite_ensure_schema(ngx_http_cache_index_store_t *st
         ");"
     };
     ngx_uint_t  i;
+    sqlite3    *db;
 
     if (store->u.sqlite.schema_ready) {
         return NGX_OK;
     }
 
-    for (i = 0; i < sizeof(schema) / sizeof(schema[0]); i++) {
-        if (ngx_http_cache_index_store_sqlite_exec(store, schema[i], log) != NGX_OK) {
+    db = store->u.sqlite.db;
+
+    /*
+     * Schema initialization happens during startup or first-use fallback when
+     * the database is missing. In that narrow path, block briefly so competing
+     * workers serialize schema creation instead of failing fast with
+     * SQLITE_BUSY / "no such table" races.
+     */
+    sqlite3_busy_timeout(db, 5000);
+
+    for (i = 0; i < sizeof(pragmas) / sizeof(pragmas[0]); i++) {
+        if (ngx_http_cache_index_store_sqlite_exec(store, pragmas[i], log)
+                != NGX_OK) {
+            sqlite3_busy_timeout(db, 0);
             return NGX_ERROR;
         }
     }
 
+    if (ngx_http_cache_index_store_sqlite_exec(store, "BEGIN IMMEDIATE;", log)
+            != NGX_OK) {
+        sqlite3_busy_timeout(db, 0);
+        return NGX_ERROR;
+    }
+
+    for (i = 0; i < sizeof(schema) / sizeof(schema[0]); i++) {
+        if (ngx_http_cache_index_store_sqlite_exec(store, schema[i], log) != NGX_OK) {
+            ngx_http_cache_index_store_sqlite_exec(store, "ROLLBACK;", log);
+            sqlite3_busy_timeout(db, 0);
+            return NGX_ERROR;
+        }
+    }
+
+    if (ngx_http_cache_index_store_sqlite_exec(store, "COMMIT;", log)
+            != NGX_OK) {
+        ngx_http_cache_index_store_sqlite_exec(store, "ROLLBACK;", log);
+        sqlite3_busy_timeout(db, 0);
+        return NGX_ERROR;
+    }
+
     store->u.sqlite.schema_ready = 1;
+    sqlite3_busy_timeout(db, 0);
 
     return NGX_OK;
 }

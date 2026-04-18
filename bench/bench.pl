@@ -13,7 +13,7 @@ use POSIX qw(setpgid strftime);
 use Time::HiRes qw(sleep);
 
 use lib "$FindBin::Bin/lib";
-use Bench qw(fetch_stats format_table stats_delta write_json);
+use Bench qw(fetch_stats format_table hires_time stats_delta write_json);
 
 my %options = (
     count       => 1000,
@@ -37,6 +37,7 @@ die "--count must be > 0\n" unless $options{count} > 0;
 die "--concurrency must be > 0\n" unless $options{concurrency} > 0;
 
 my $duration = $options{quick} ? 15 : 60;
+my $post_start_delay_s = 3;
 my $perl = $^X;
 my $nginx = '/opt/nginx/sbin/nginx';
 my $nginx_error_log = '/tmp/bench_nginx_error.log';
@@ -66,6 +67,21 @@ my @all_scenarios = (
         prefix     => '/exact/',
         mode       => 'exact',
         backend    => 'sqlite',
+    },
+    {
+        key        => 'exact-fanout',
+        name       => 'exact_fanout_purge',
+        table_name => 'exact_fanout_purge',
+        config_template => 'nginx_fanout',
+        prefix     => '/exact-vary/',
+        mode       => 'exact',
+        backend    => 'sqlite',
+        vary_header => 'X-Variant',
+        vary_values => [qw(a b c)],
+        purge_header => 'X-Variant',
+        purge_header_value => 'a',
+        index_zone => 'bench_fanout',
+        require_index_ready => 1,
     },
     {
         key        => 'wild',
@@ -179,6 +195,10 @@ for my $scenario (@scenarios) {
         start_nginx($current_conf);
         wait_for_stats($stats_url);
         log_info('Metrics endpoint is ready');
+        if ($post_start_delay_s > 0) {
+            log_info("Waiting ${post_start_delay_s}s for nginx startup tasks");
+            sleep($post_start_delay_s);
+        }
         record_nginx_error_log($run_dir, join('_', $scenario->{config_template_name}, $scenario->{backend}, 'startup'));
         $active_runtime = $runtime_key;
     }
@@ -250,7 +270,11 @@ sub run_scenario {
     log_info("Fetching baseline stats for $scenario->{name}");
     my $before = fetch_stats($stats_endpoint);
     log_info("Warming cache for $scenario->{name}");
-    warm_cache($scenario->{prefix}, $options{count});
+    warm_cache($scenario->{prefix}, $options{count}, $scenario);
+
+    if ($scenario->{require_index_ready}) {
+        wait_for_index_ready($stats_endpoint, $scenario->{index_zone}, 20);
+    }
 
     my $get_out = "$run_dir/$scenario->{name}_get.json";
     my $purge_out = "$run_dir/$scenario->{name}_purge.json";
@@ -266,6 +290,12 @@ sub run_scenario {
         '--duration', $duration_s,
         '--port', $options{port},
         '--out', $get_out,
+        (defined $scenario->{vary_header}
+            ? ('--vary-header', $scenario->{vary_header})
+            : ()),
+        (defined $scenario->{vary_values}
+            ? ('--vary-values', join(',', @{ $scenario->{vary_values} }))
+            : ()),
     );
 
     sleep(2);
@@ -285,6 +315,14 @@ sub run_scenario {
 
     if (defined $scenario->{tag_base}) {
         push @purge_command, '--tag-base', $scenario->{tag_base};
+    }
+
+    if (defined $scenario->{purge_header}) {
+        push @purge_command, '--purge-header', $scenario->{purge_header};
+    }
+
+    if (defined $scenario->{purge_header_value}) {
+        push @purge_command, '--purge-header-value', $scenario->{purge_header_value};
     }
 
     my $purge_pid = fork_exec(@purge_command);
@@ -447,10 +485,53 @@ sub wait_for_stats {
     die "nginx did not become ready at $url\n";
 }
 
+sub wait_for_index_ready {
+    my ($url, $zone_name, $timeout_s) = @_;
+
+    return unless defined $zone_name && length $zone_name;
+    $timeout_s = 10 unless defined $timeout_s && $timeout_s > 0;
+
+    my $deadline = hires_time() + $timeout_s;
+
+    while (hires_time() < $deadline) {
+        my $stats = fetch_stats($url);
+        my $zone = $stats->{zones}->{$zone_name};
+
+        if (ref($zone) eq 'HASH') {
+            my $state = $zone->{index}->{state_code};
+            return if defined $state && $state == 2;
+        }
+
+        sleep(0.2);
+    }
+
+    log_info("Index zone $zone_name did not reach ready state within ${timeout_s}s");
+}
+
 sub warm_cache {
-    my ($prefix, $count) = @_;
+    my ($prefix, $count, $scenario) = @_;
+
+    my @vary_values;
+    my $vary_header;
+    if (defined $scenario && ref($scenario->{vary_values}) eq 'ARRAY') {
+        @vary_values = @{ $scenario->{vary_values} };
+        $vary_header = $scenario->{vary_header};
+    }
 
     for my $index (0 .. ($count - 1)) {
+        if (@vary_values > 0 && defined $vary_header && length $vary_header) {
+            for my $vary_value (@vary_values) {
+                my $response = $ua->get(
+                    "http://127.0.0.1:$options{port}$prefix$index",
+                    $vary_header => $vary_value,
+                );
+                die "warm-up failed for $prefix$index [$vary_header=$vary_value]: "
+                    . $response->status_line . "\n"
+                    unless $response->is_success;
+            }
+            next;
+        }
+
         my $response = $ua->get("http://127.0.0.1:$options{port}$prefix$index");
         die "warm-up failed for $prefix$index: " . $response->status_line . "\n"
             unless $response->is_success;
