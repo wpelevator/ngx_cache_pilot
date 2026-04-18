@@ -324,7 +324,7 @@ location /_cache_stats {
 }
 ```
 
-`tag_index` is omitted when no `cache_pilot_tag_index` is configured. `purges` counters are global across all zones and survive `nginx -s reload`.
+`tag_index` is omitted when no `cache_pilot_tag_index` is configured. `tag_index.state_code` uses `0=disabled`, `1=configured`, and `2=ready`. `purges` counters are global across all zones and survive `nginx -s reload`.
 
 **Prometheus metrics** (prefix `nginx_cache_pilot_`):
 
@@ -334,6 +334,7 @@ location /_cache_stats {
 - `nginx_cache_pilot_zone_max_size_bytes{zone}` — gauge, configured maximum zone size
 - `nginx_cache_pilot_zone_cold{zone}` — gauge, 1 while the cache loader is still warming the zone
 - `nginx_cache_pilot_zone_entries{zone,state}` — gauge, entry count by state (`valid`, `expired`, `updating`)
+- `nginx_cache_pilot_tag_index_state{zone,state}` — gauge, per-zone key index readiness (`0=disabled`, `1=configured`, `2=ready`)
 - `nginx_cache_pilot_tag_index_info{zone,backend}` — info gauge, tag index backend type
 - `nginx_cache_pilot_tag_queue_size{zone}` — gauge, pending entries in the inotify write queue
 - `nginx_cache_pilot_tag_queue_capacity{zone}` — gauge, maximum queue capacity
