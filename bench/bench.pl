@@ -111,6 +111,8 @@ my @all_scenarios = (
         mode       => 'tag',
         tag_base   => 'bench-rtag',
         backend    => 'redis',
+        index_zone => 'bench_tag_redis',
+        require_index_ready => 1,
     },
 );
 
@@ -297,13 +299,9 @@ sub run_scenario {
     log_info("Fetching baseline stats for $scenario->{name}");
     my $before = fetch_stats($stats_endpoint);
 
-    wait_for_scenario_ready($scenario, $scenario_ready_timeout_s);
+    wait_for_scenario_ready($scenario, $stats_endpoint, $scenario_ready_timeout_s);
     log_info("Warming cache for $scenario->{name}");
     warm_cache($scenario->{prefix}, $options{count}, $scenario);
-
-    if ($scenario->{require_index_ready}) {
-        wait_for_index_ready($stats_endpoint, $scenario->{index_zone}, 20);
-    }
 
     my $get_out = "$run_dir/$scenario->{name}_get.json";
     my $purge_out = "$run_dir/$scenario->{name}_purge.json";
@@ -514,29 +512,6 @@ sub wait_for_stats {
     die "nginx did not become ready at $url\n";
 }
 
-sub wait_for_index_ready {
-    my ($url, $zone_name, $timeout_s) = @_;
-
-    return unless defined $zone_name && length $zone_name;
-    $timeout_s = 10 unless defined $timeout_s && $timeout_s > 0;
-
-    my $deadline = hires_time() + $timeout_s;
-
-    while (hires_time() < $deadline) {
-        my $stats = fetch_stats($url);
-        my $zone = $stats->{zones}->{$zone_name};
-
-        if (ref($zone) eq 'HASH') {
-            my $state = $zone->{index}->{state_code};
-            return if defined $state && $state == 2;
-        }
-
-        sleep(0.2);
-    }
-
-    log_info("Index zone $zone_name did not reach ready state within ${timeout_s}s");
-}
-
 sub warm_cache {
     my ($prefix, $count, $scenario) = @_;
 
@@ -570,7 +545,7 @@ sub warm_cache {
 }
 
 sub wait_for_scenario_ready {
-    my ($scenario, $timeout_s) = @_;
+    my ($scenario, $stats_url, $timeout_s) = @_;
     my $deadline = hires_time() + $timeout_s;
     my @requests = scenario_ready_requests($scenario);
     my $last_status = 'not attempted';
@@ -587,7 +562,9 @@ sub wait_for_scenario_ready {
             }
         }
 
-        return if $all_ready;
+        if ($all_ready && scenario_ready_state($scenario, $stats_url)) {
+            return;
+        }
 
         sleep(0.2);
     }
@@ -598,6 +575,23 @@ sub wait_for_scenario_ready {
         $timeout_s,
         $last_status,
     );
+}
+
+sub scenario_ready_state {
+    my ($scenario, $stats_url) = @_;
+    my $zone;
+    my $state;
+    my $stats;
+
+    return 1 unless $scenario->{require_index_ready};
+    return 1 unless defined $scenario->{index_zone} && length $scenario->{index_zone};
+
+    $stats = fetch_stats($stats_url);
+    $zone = $stats->{zones}->{$scenario->{index_zone}};
+    return 0 unless ref($zone) eq 'HASH';
+
+    $state = $zone->{index}->{state_code};
+    return defined $state && $state == 2;
 }
 
 sub scenario_ready_requests {
