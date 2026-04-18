@@ -37,7 +37,7 @@ die "--count must be > 0\n" unless $options{count} > 0;
 die "--concurrency must be > 0\n" unless $options{concurrency} > 0;
 
 my $duration = $options{quick} ? 15 : 60;
-my $post_start_delay_s = 3;
+my $scenario_ready_timeout_s = 10;
 my $perl = $^X;
 my $nginx = '/opt/nginx/sbin/nginx';
 my $nginx_error_log = '/tmp/bench_nginx_error.log';
@@ -159,64 +159,82 @@ log_info("Writing run artifacts to $run_dir");
 
 my @results;
 my $active_runtime;
+my $active_scenario;
+my $failure;
 
-for my $scenario (@scenarios) {
-    my $runtime_key = join("\0",
-        $scenario->{config_template_path},
-        $scenario->{backend},
-    );
+eval {
+    for my $scenario (@scenarios) {
+        $active_scenario = $scenario;
 
-    if (!defined $active_runtime || $active_runtime ne $runtime_key) {
-        log_info(sprintf(
-            'Switching runtime: template=%s backend=%s',
-            $scenario->{config_template_name},
+        my $runtime_key = join("\0",
+            $scenario->{config_template_path},
             $scenario->{backend},
+        );
+
+        if (!defined $active_runtime || $active_runtime ne $runtime_key) {
+            log_info(sprintf(
+                'Switching runtime: template=%s backend=%s',
+                $scenario->{config_template_name},
+                $scenario->{backend},
+            ));
+            stop_nginx($current_conf) if defined $current_conf;
+            $current_conf = undef;
+
+            if ($redis_started) {
+                log_info('Stopping Redis sidecar');
+                stop_redis();
+                $redis_started = 0;
+            }
+
+            cleanup_runtime_state();
+
+            if ($scenario->{backend} eq 'redis') {
+                log_info('Starting Redis sidecar');
+                start_redis();
+                $redis_started = 1;
+            }
+
+            $current_conf = render_runtime_config($scenario);
+
+            log_info("Starting nginx with $current_conf");
+            start_nginx($current_conf);
+            wait_for_stats($stats_url);
+            log_info('Metrics endpoint is ready');
+            record_nginx_error_log($run_dir, join('_', $scenario->{config_template_name}, $scenario->{backend}, 'startup'));
+            $active_runtime = $runtime_key;
+        }
+
+        log_info(sprintf(
+            'Running scenario %s (%ss)',
+            $scenario->{name},
+            $duration,
         ));
-        stop_nginx($current_conf) if defined $current_conf;
-        $current_conf = undef;
-
-        if ($redis_started) {
-            log_info('Stopping Redis sidecar');
-            stop_redis();
-            $redis_started = 0;
-        }
-
-        cleanup_runtime_state();
-
-        if ($scenario->{backend} eq 'redis') {
-            log_info('Starting Redis sidecar');
-            start_redis();
-            $redis_started = 1;
-        }
-
-        $current_conf = render_runtime_config($scenario);
-
-        log_info("Starting nginx with $current_conf");
-        start_nginx($current_conf);
-        wait_for_stats($stats_url);
-        log_info('Metrics endpoint is ready');
-        if ($post_start_delay_s > 0) {
-            log_info("Waiting ${post_start_delay_s}s for nginx startup tasks");
-            sleep($post_start_delay_s);
-        }
-        record_nginx_error_log($run_dir, join('_', $scenario->{config_template_name}, $scenario->{backend}, 'startup'));
-        $active_runtime = $runtime_key;
+        my $result = run_scenario($scenario, $duration, $run_dir, $stats_url);
+        push @results, $result;
+        log_info(sprintf(
+            'Completed scenario %s: GET rps=%.1f purge_count=%d',
+            $scenario->{name},
+            $result->{get}->{rps} || 0,
+            $result->{purge}->{purge_count} || 0,
+        ));
     }
+    1;
+} or do {
+    my $error = $@ || 'benchmark failed';
+    chomp $error;
+    $failure = {
+        message => $error,
+        scenario => defined $active_scenario ? $active_scenario->{key} : undef,
+        name => defined $active_scenario ? $active_scenario->{name} : undef,
+    };
 
-    log_info(sprintf(
-        'Running scenario %s (%ss)',
-        $scenario->{name},
-        $duration,
-    ));
-    my $result = run_scenario($scenario, $duration, $run_dir, $stats_url);
-    push @results, $result;
-    log_info(sprintf(
-        'Completed scenario %s: GET rps=%.1f purge_count=%d',
-        $scenario->{name},
-        $result->{get}->{rps} || 0,
-        $result->{purge}->{purge_count} || 0,
-    ));
-}
+    eval {
+        my $label = defined $active_scenario
+            ? $active_scenario->{name} . '_failure'
+            : 'run_failure';
+        record_nginx_error_log($run_dir, $label);
+    };
+};
 
 stop_nginx($current_conf) if defined $current_conf;
 $current_conf = undef;
@@ -230,6 +248,7 @@ if ($redis_started) {
 my $summary = {
     generated_at => $timestamp,
     quick        => $options{quick} ? JSON::PP::true : JSON::PP::false,
+    completed    => $failure ? JSON::PP::false : JSON::PP::true,
     duration_s   => $duration,
     count        => $options{count},
     concurrency  => $options{concurrency},
@@ -237,7 +256,11 @@ my $summary = {
     scenarios    => \@results,
 };
 
-if (defined $options{assert_file}) {
+if ($failure) {
+    $summary->{failure} = $failure;
+}
+
+if (defined $options{assert_file} && !$failure) {
     log_info("Evaluating assertions from $options{assert_file}");
     my @violations = evaluate_assertions($summary, $options{assert_file});
     $summary->{assertions} = {
@@ -264,11 +287,17 @@ if (defined $summary->{assertions}) {
     exit 1 unless $summary->{assertions}->{passed};
 }
 
+if ($failure) {
+    die "$failure->{message}\n";
+}
+
 sub run_scenario {
     my ($scenario, $duration_s, $run_dir, $stats_endpoint) = @_;
 
     log_info("Fetching baseline stats for $scenario->{name}");
     my $before = fetch_stats($stats_endpoint);
+
+    wait_for_scenario_ready($scenario, $scenario_ready_timeout_s);
     log_info("Warming cache for $scenario->{name}");
     warm_cache($scenario->{prefix}, $options{count}, $scenario);
 
@@ -538,6 +567,60 @@ sub warm_cache {
     }
 
     sleep(0.5);
+}
+
+sub wait_for_scenario_ready {
+    my ($scenario, $timeout_s) = @_;
+    my $deadline = hires_time() + $timeout_s;
+    my @requests = scenario_ready_requests($scenario);
+    my $last_status = 'not attempted';
+
+    while (hires_time() < $deadline) {
+        my $all_ready = 1;
+
+        for my $request (@requests) {
+            my $response = $ua->get($request->{url}, @{ $request->{headers} });
+            if (!$response->is_success) {
+                $all_ready = 0;
+                $last_status = $response->status_line;
+                last;
+            }
+        }
+
+        return if $all_ready;
+
+        sleep(0.2);
+    }
+
+    die sprintf(
+        'scenario readiness timed out for %s after %ss: %s' . "\n",
+        $scenario->{name},
+        $timeout_s,
+        $last_status,
+    );
+}
+
+sub scenario_ready_requests {
+    my ($scenario) = @_;
+    my $base_url = "http://127.0.0.1:$options{port}$scenario->{prefix}0";
+
+    if (defined $scenario->{vary_values}
+            && ref($scenario->{vary_values}) eq 'ARRAY'
+            && @{ $scenario->{vary_values} }
+            && defined $scenario->{vary_header}
+            && length $scenario->{vary_header}) {
+        return map {
+            {
+                url => $base_url,
+                headers => [ $scenario->{vary_header} => $_ ],
+            }
+        } @{ $scenario->{vary_values} };
+    }
+
+    return ({
+        url => $base_url,
+        headers => [],
+    });
 }
 
 sub fork_exec {
