@@ -5,6 +5,7 @@ use warnings;
 
 use FindBin;
 use Getopt::Long qw(GetOptions);
+use HTTP::Request;
 use JSON::PP ();
 use LWP::UserAgent;
 use POSIX qw(_exit);
@@ -29,6 +30,8 @@ GetOptions(
     'port=i'        => \$options{port},
     'prefix=s'      => \$options{prefix},
     'scenario=s'    => \$options{scenario},
+    'vary-header=s' => \$options{vary_header},
+    'vary-values=s' => \$options{vary_values},
 ) or die "invalid arguments\n";
 
 die "--out is required\n" unless defined $options{out};
@@ -39,6 +42,9 @@ die "--duration must be > 0\n" unless $options{duration} > 0;
 my $base_url = "http://127.0.0.1:$options{port}";
 my $end_time = hires_time() + $options{duration};
 my @children;
+my @vary_values = defined $options{vary_values}
+    ? grep { length $_ } split /,/, $options{vary_values}
+    : ();
 
 for (1 .. $options{concurrency}) {
     my $temp_file = sprintf('/tmp/bench_get_child_%d_%d.jsonl', $$, $_);
@@ -59,8 +65,15 @@ for (1 .. $options{concurrency}) {
         while (hires_time() < $end_time) {
             my $index = int(rand($options{count}));
             my $url = $base_url . $options{prefix} . $index;
+            my $request = HTTP::Request->new('GET', $url);
+
+            if (@vary_values && defined $options{vary_header} && length $options{vary_header}) {
+                my $vary_value = $vary_values[$index % @vary_values];
+                $request->header($options{vary_header} => $vary_value);
+            }
+
             my $started = hires_time();
-            my $response = $ua->get($url);
+            my $response = $ua->request($request);
             my $elapsed_us = int((hires_time() - $started) * 1_000_000);
             my $cache_status = $response->header('X-Cache-Status');
             $cache_status = defined $cache_status && length $cache_status
