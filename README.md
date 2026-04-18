@@ -288,41 +288,49 @@ location /_cache_stats {
 }
 ```
 
-**JSON response structure** (aligned with nginx Plus `/api/http/caches/` naming):
+**JSON response structure** (captured from live `/_stats?format=json` output; `zones` list truncated):
 
 ```json
 {
   "version": 1,
-  "timestamp": 1713268800,
+    "timestamp": 1776537836,
   "purges": {
-    "exact":    { "hard": 120, "soft": 45 },
-    "wildcard": { "hard": 12,  "soft": 3  },
-    "tag":      { "hard": 80,  "soft": 200 },
-    "all":      { "hard": 1,   "soft": 0  }
+        "exact": { "hard": 0, "soft": 0 },
+        "wildcard": { "hard": 0, "soft": 0 },
+        "tag": { "hard": 0, "soft": 0 },
+        "all": { "hard": 0, "soft": 0 }
+    },
+    "key_index": {
+        "exact_fanout": 0,
+        "wildcard_hits": 0
   },
   "zones": {
-    "my_cache": {
-      "size": 104857600,
-      "max_size": 1073741824,
-      "cold": false,
+        "demo_soft": {
+            "size": 0,
+            "max_size": 2251799813685247,
+            "cold": true,
       "entries": {
-        "total": 4823,
-        "valid": 4201,
-        "expired": 622,
+                "total": 0,
+                "valid": 0,
+                "expired": 0,
         "updating": 0
       },
       "tag_index": {
+                "state": "configured",
+                "state_code": 1,
         "backend": "sqlite",
         "queue": {
-          "size": 3,
+                    "size": 0,
           "capacity": 256,
           "dropped": 0
         }
       }
-    }
+        }
   }
 }
 ```
+
+Additional zones are omitted for brevity.
 
 `tag_index` is omitted when no `cache_pilot_tag_index` is configured. `tag_index.state_code` uses `0=disabled`, `1=configured`, and `2=ready`. `purges` counters are global across all zones and survive `nginx -s reload`.
 
