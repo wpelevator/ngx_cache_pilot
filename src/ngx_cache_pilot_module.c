@@ -2156,10 +2156,10 @@ ngx_http_cache_pilot_exact_purge(ngx_http_request_t *r) {
     {
         ngx_http_cache_pilot_main_conf_t *pmcf_m;
         ngx_int_t                         fanout_used;
-    #if (NGX_LINUX)
+#if (NGX_LINUX)
         ngx_http_cache_tag_zone_t       *tag_zone;
         ngx_http_cache_tag_store_t      *reader;
-    #endif
+#endif
 
         pmcf_m = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
         NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics, purges_exact_hard);
@@ -2170,9 +2170,9 @@ ngx_http_cache_pilot_exact_purge(ngx_http_request_t *r) {
         if (ngx_http_cache_pilot_key_index_ready(r, cache, &pmcf_m,
                 &tag_zone, &reader) == NGX_OK) {
             ngx_str_t   *kv, key_text;
-        ngx_str_t   *fp;
-        ngx_array_t *fan_paths;
-        ngx_int_t    purge_rc;
+            ngx_str_t   *fp;
+            ngx_array_t *fan_paths;
+            ngx_int_t    purge_rc;
             ngx_uint_t   ki, klen;
             u_char      *p;
 
@@ -2193,8 +2193,8 @@ ngx_http_cache_pilot_exact_purge(ngx_http_request_t *r) {
 
                 fan_paths = NULL;
                 if (ngx_http_cache_tag_store_collect_paths_by_exact_key(
-                        reader, r->pool, &tag_zone->zone_name, &key_text,
-                        &fan_paths, r->connection->log) == NGX_OK
+                            reader, r->pool, &tag_zone->zone_name, &key_text,
+                            &fan_paths, r->connection->log) == NGX_OK
                         && fan_paths != NULL && fan_paths->nelts > 0) {
                     fp = fan_paths->elts;
                     for (ki = 0; ki < fan_paths->nelts; ki++) {

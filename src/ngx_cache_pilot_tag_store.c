@@ -94,20 +94,20 @@ ngx_http_cache_tag_store_upsert_file_meta(ngx_http_cache_tag_store_t *store,
 
 ngx_int_t
 ngx_http_cache_tag_store_collect_paths_by_exact_key(
-        ngx_http_cache_tag_store_t *store, ngx_pool_t *pool,
-        ngx_str_t *zone_name, ngx_str_t *key_text,
-        ngx_array_t **paths, ngx_log_t *log) {
+    ngx_http_cache_tag_store_t *store, ngx_pool_t *pool,
+    ngx_str_t *zone_name, ngx_str_t *key_text,
+    ngx_array_t **paths, ngx_log_t *log) {
     return store->ops->collect_paths_by_exact_key(store, pool, zone_name,
-                                                   key_text, paths, log);
+            key_text, paths, log);
 }
 
 ngx_int_t
 ngx_http_cache_tag_store_collect_paths_by_key_prefix(
-        ngx_http_cache_tag_store_t *store, ngx_pool_t *pool,
-        ngx_str_t *zone_name, ngx_str_t *prefix,
-        ngx_array_t **paths, ngx_log_t *log) {
+    ngx_http_cache_tag_store_t *store, ngx_pool_t *pool,
+    ngx_str_t *zone_name, ngx_str_t *prefix,
+    ngx_array_t **paths, ngx_log_t *log) {
     return store->ops->collect_paths_by_key_prefix(store, pool, zone_name,
-                                                    prefix, paths, log);
+            prefix, paths, log);
 }
 
 ngx_int_t
@@ -168,11 +168,11 @@ ngx_http_cache_tag_store_process_file(ngx_http_cache_tag_store_t *store,
                                           log) != NGX_OK) {
             ngx_destroy_pool(pool);
             return ngx_http_cache_tag_store_delete_file(store, zone_name, path,
-                                                        log);
+                    log);
         }
 
         rc = ngx_http_cache_tag_store_upsert_file_meta(store, zone_name, path,
-                 &cache_key_text, mtime, size, NULL, log);
+                &cache_key_text, mtime, size, NULL, log);
         ngx_destroy_pool(pool);
         return rc;
     }
@@ -185,7 +185,7 @@ ngx_http_cache_tag_store_process_file(ngx_http_cache_tag_store_t *store,
     }
 
     rc = ngx_http_cache_tag_store_upsert_file_meta(store, zone_name, path,
-             &cache_key_text, mtime, size, tags, log);
+            &cache_key_text, mtime, size, tags, log);
     ngx_destroy_pool(pool);
 
     return rc;

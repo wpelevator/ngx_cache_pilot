@@ -478,7 +478,7 @@ ngx_http_cache_tag_store_sqlite_collect_paths_by_exact_key(
                       SQLITE_TRANSIENT);
 
     while ((rc = ngx_http_cache_tag_store_sqlite_step(stmt, store->u.sqlite.db,
-                     log, "key-exact-lookup")) == SQLITE_ROW) {
+                 log, "key-exact-lookup")) == SQLITE_ROW) {
         text = sqlite3_column_text(stmt, 0);
         if (text == NULL) {
             continue;
@@ -558,7 +558,7 @@ ngx_http_cache_tag_store_sqlite_collect_paths_by_key_prefix(
                       SQLITE_TRANSIENT);
 
     while ((rc = ngx_http_cache_tag_store_sqlite_step(stmt, store->u.sqlite.db,
-                     log, "key-prefix-lookup")) == SQLITE_ROW) {
+                 log, "key-prefix-lookup")) == SQLITE_ROW) {
         text = sqlite3_column_text(stmt, 0);
         if (text == NULL) {
             continue;
