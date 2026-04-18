@@ -11,6 +11,67 @@ _This module is not distributed with the NGINX source. See [Installation Instruc
 
 This is a fork of the [`ngx_cache_purge` module](https://github.com/nginx-modules/ngx_cache_purge) to add support for soft purgaging and cache tags (also known as surrogate keys).
 
+## Compatibility And Limits
+
+- cache-tag indexing currently requires Linux
+- supported tag index backends are SQLite and Redis
+- Redis support currently targets a single instance over TCP or a Unix socket, with optional password auth and database selection
+- `--with-threads` is strongly recommended so startup bootstrap and wildcard purge scans do not block the nginx event loop
+
+## Installation Instructions
+
+You need to build NGINX with this repository as an extra module via `--add-module` or `--add-dynamic-module`; it is not bundled with upstream NGINX.
+
+For most users, the recommended installation path is to build a dynamic module against the exact NGINX version already installed on the target system.
+
+### Recommended: build a dynamic module for your installed NGINX version
+
+- Check the target version with `nginx -v`.
+- Download the matching NGINX source release.
+- Build this repository as a dynamic module against that exact source tree.
+- Copy the resulting `.so` into your NGINX modules directory and load it with `load_module`.
+
+For example, if `nginx -v` reports `nginx/1.28.1`:
+
+```bash
+cd ~/build/nginx-cache-pilot
+wget https://nginx.org/download/nginx-1.28.1.tar.gz
+tar xf nginx-1.28.1.tar.gz
+cd nginx-1.28.1
+
+./configure \
+    --with-compat \
+    --with-threads \
+    --with-ld-opt="-lsqlite3" \
+    --add-dynamic-module=../ngx_cache_pilot
+
+make modules
+```
+
+This produces `objs/ngx_http_cache_pilot_module.so`, which you can then copy into your nginx modules directory and load with `load_module`.
+
+### Alternative: build NGINX from source with this module
+
+If you are building your own NGINX binary from source, point `./configure` at this repository with `--add-module` for a static build or `--add-dynamic-module` for a dynamic build.
+
+```bash
+./configure \
+    --with-debug \
+    --with-threads \
+    --with-http_ssl_module \
+    --add-module=/path/to/ngx_cache_pilot
+make
+make install
+```
+
+For a dynamic module build in this workflow, replace `--add-module` with `--add-dynamic-module` and use `make modules`.
+
+The repository `config` script links against `sqlite3`, so your build environment must provide the SQLite development library. Redis support uses the module's built-in RESP client and does not add another native dependency. The resulting dynamic module still depends on the system `libsqlite3` when SQLite support is compiled in.
+
+`--with-threads` enables nginx's thread pool support. When present, the module offloads two blocking operations to a worker thread: the startup cache-tree bootstrap (tag index population) and wildcard/partial-key purge scans. Without `--with-threads` these operations run synchronously in the event loop.
+
+If you want the included containerized build environment, tests, or the manual validation setup, see [Development](#development).
+
 ## Quick Start
 
 `ngx_cache_pilot` supports multiple purge styles depending on how you want to address cached content:
@@ -85,7 +146,7 @@ http {
 
             # Use this header to enable soft purge.
             cache_pilot_purge_mode_header X-Purge-Mode;
-            
+
             # Enable cache tag indexing and purging.
             cache_pilot_index on;
         }
@@ -107,59 +168,62 @@ curl -i -X PURGE -H 'Surrogate-Key: article-42 group-a' 'http://127.0.0.1:8080/t
 curl -i -X PURGE -H 'Surrogate-Key: article-42 group-a' -H 'X-Purge-Mode: soft' 'http://127.0.0.1:8080/tagged/item'
 ```
 
-## Installation Instructions
+## Configuration Examples
 
-You need to build NGINX with this repository as an extra module via `--add-module` or `--add-dynamic-module`; it is not bundled with upstream NGINX.
+Use these as compact starting points after Quick Start.
 
-For most users, the recommended installation path is to build a dynamic module against the exact NGINX version already installed on the target system.
+### Same-location syntax
 
-### Recommended: build a dynamic module for your installed NGINX version
+```nginx
+http {
+    proxy_cache_path /tmp/cache keys_zone=tmpcache:10m;
+    map $request_method:$remote_addr $purge_request {
+        default         off;
+        PURGE:127.0.0.1 on;
+    }
 
-- Check the target version with `nginx -v`.
-- Download the matching NGINX source release.
-- Build this repository as a dynamic module against that exact source tree.
-- Copy the resulting `.so` into your NGINX modules directory and load it with `load_module`.
-
-For example, if `nginx -v` reports `nginx/1.28.1`:
-
-```bash
-cd ~/build/nginx-cache-pilot
-wget https://nginx.org/download/nginx-1.28.1.tar.gz
-tar xf nginx-1.28.1.tar.gz
-cd nginx-1.28.1
-
-./configure \
-    --with-compat \
-    --with-threads \
-    --with-ld-opt="-lsqlite3" \
-    --add-dynamic-module=../ngx_cache_pilot
-
-make modules
+    server {
+        location / {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_cache tmpcache;
+            proxy_cache_purge $purge_request;
+        }
+    }
+}
 ```
 
-This produces `objs/ngx_http_cache_pilot_module.so`, which you can then copy into your nginx modules directory and load with `load_module`.
+Use `soft` if you want matching entries to expire in place, or add `purge_all` if you want a purge request to target every cached entry in the zone.
 
-### Alternative: build NGINX from source with this module
+### Separate-location syntax
 
-If you are building your own NGINX binary from source, point `./configure` at this repository with `--add-module` for a static build or `--add-dynamic-module` for a dynamic build.
+```nginx
+http {
+    proxy_cache_path /tmp/cache keys_zone=tmpcache:10m;
 
-```bash
-./configure \
-    --with-debug \
-    --with-threads \
-    --with-http_ssl_module \
-    --add-module=/path/to/ngx_cache_pilot
-make
-make install
+    server {
+        location / {
+            proxy_pass http://127.0.0.1:8000;
+            proxy_cache tmpcache;
+        }
+
+        location ~ /purge(/.*) {
+            allow 127.0.0.1;
+            deny all;
+
+            proxy_cache tmpcache;
+            proxy_cache_purge $purge_request;
+        }
+    }
+}
 ```
 
-For a dynamic module build in this workflow, replace `--add-module` with `--add-dynamic-module` and use `make modules`.
+### Response types
 
-The repository `config` script links against `sqlite3`, so your build environment must provide the SQLite development library. Redis support uses the module's built-in RESP client and does not add another native dependency. The resulting dynamic module still depends on the system `libsqlite3` when SQLite support is compiled in.
+Use `cache_pilot_purge_response_type` to switch between `html`, `json`, `xml`, and `text` responses in the scope where the purge response is generated.
 
-`--with-threads` enables nginx's thread pool support. When present, the module offloads two blocking operations to a worker thread: the startup cache-tree bootstrap (tag index population) and wildcard/partial-key purge scans. Without `--with-threads` these operations run synchronously in the event loop.
+### Cache tags
 
-If you want the included containerized build environment, tests, or the manual validation setup, see [Development](#development).
+The minimal cache-tag setup is already shown in Quick Start. Use that pattern whenever you want to purge by `Cache-Tag` or `Surrogate-Key` headers.
 
 ## Configuration Reference
 
@@ -449,6 +513,10 @@ Notes:
 - The cache watcher keeps the index fresh during normal operation.
 - When built with `--with-threads`, the startup cache-tree bootstrap and wildcard purge scans run in an nginx thread pool, keeping the event loop unblocked. Without threads, both operations run synchronously.
 
+## Known issues
+
+- Exact-key fanout across `Vary` variants depends on key-index readiness for the zone. If key-index data is unavailable or not yet ready, exact-key purge targets only the directly resolved cache file and does not run a full cache scan.
+
 ## Cache Index Architecture
 
 This section describes how the cache index works internally. It is not required reading for normal use, but is useful when diagnosing storage growth, planning capacity, or modifying the module.
@@ -557,67 +625,6 @@ When a tag `PURGE` request is received:
 3. For each path the module applies the configured purge mode:
    - **Soft purge** — the cache file is marked expired in the shared-memory cache node so the next request is served as `EXPIRED`. The index entry is queued for async cleanup.
    - **Hard purge** — the cache file is deleted from disk immediately. The index delete is handed off to the owner worker via the shared-memory queue. A `200` response means the delete was accepted for processing, not necessarily already committed to the index backend.
-
-## Configuration Examples
-
-Use these as compact starting points after Quick Start.
-
-### Same-location syntax
-
-```nginx
-http {
-    proxy_cache_path /tmp/cache keys_zone=tmpcache:10m;
-    map $request_method:$remote_addr $purge_request {
-        default         off;
-        PURGE:127.0.0.1 on;
-    }
-
-    server {
-        location / {
-            proxy_pass http://127.0.0.1:8000;
-            proxy_cache tmpcache;
-            proxy_cache_purge $purge_request;
-        }
-    }
-}
-```
-
-Use `soft` if you want matching entries to expire in place, or add `purge_all` if you want a purge request to target every cached entry in the zone.
-
-### Separate-location syntax
-
-```nginx
-http {
-    proxy_cache_path /tmp/cache keys_zone=tmpcache:10m;
-
-    server {
-        location / {
-            proxy_pass http://127.0.0.1:8000;
-            proxy_cache tmpcache;
-        }
-
-        location ~ /purge(/.*) {
-            allow 127.0.0.1;
-            deny all;
-
-            proxy_cache tmpcache;
-            proxy_cache_purge $purge_request;
-        }
-    }
-}
-```
-
-### Response types
-
-Use `cache_pilot_purge_response_type` to switch between `html`, `json`, `xml`, and `text` responses in the scope where the purge response is generated.
-
-### Cache tags
-
-The minimal cache-tag setup is already shown in Quick Start. Use that pattern whenever you want to purge by `Cache-Tag` or `Surrogate-Key` headers.
-
-## Known issues
-
-- Exact-key fanout across `Vary` variants depends on key-index readiness for the zone. If key-index data is unavailable or not yet ready, exact-key purge targets only the directly resolved cache file and does not run a full cache scan.
 
 ## Development
 
