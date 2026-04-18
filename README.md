@@ -19,7 +19,7 @@ This is a fork of the [`ngx_cache_purge` module](https://github.com/nginx-module
 - wildcard URI purge using a trailing `*`
 - cache-tag and surrogate-key purge
 
-When `cache_pilot_tag_index` and `cache_pilot_tag_watch` are enabled for a zone,
+When `cache_pilot_index_store` and `cache_pilot_index` are enabled for a zone,
 the module also maintains a cache-key index. That key index is used to:
 
 - fan out exact-key hard purges across files that share the same key (for example, `Vary` variants)
@@ -68,7 +68,7 @@ http {
     proxy_cache_path /tmp/cache keys_zone=tmpcache:10m;
 
     # Storage for cache tag index (map of cache tags to files)
-    cache_pilot_tag_index  sqlite /tmp/ngx_cache_pilot_tags.sqlite;
+    cache_pilot_index_store  sqlite /tmp/ngx_cache_pilot_tags.sqlite;
 
     map $request_method:$remote_addr $purge_request {
         default         0;
@@ -87,7 +87,7 @@ http {
             cache_pilot_purge_mode_header X-Purge-Mode;
             
             # Enable cache tag indexing and purging.
-            cache_pilot_tag_watch on;
+            cache_pilot_index on;
         }
     }
 }
@@ -222,9 +222,9 @@ If configured:
 - if the header is absent, the configured purge mode is used
 - `purge_all` ignores this override and keeps its configured behavior
 
-#### `cache_pilot_tag_index`
+#### `cache_pilot_index_store`
 
-- **syntax**: `cache_pilot_tag_index sqlite <path>` or `cache_pilot_tag_index redis <endpoint> [db=<n>] [password=<secret>]`
+- **syntax**: `cache_pilot_index_store sqlite <path>` or `cache_pilot_index_store redis <endpoint> [db=<n>] [password=<secret>]`
 - **default**: `none`
 - **context**: `http`
 
@@ -245,15 +245,17 @@ Set the request and cached-response headers used for cache-tag extraction and ta
 
 All watched locations that share the same cache zone must use the same `cache_pilot_tag_headers` list.
 
-#### `cache_pilot_tag_watch`
+#### `cache_pilot_index`
 
-- **syntax**: `cache_pilot_tag_watch on|off`
-- **default**: `off`
+- **syntax**: `cache_pilot_index on|off`
+- **default**: `on` when `cache_pilot_index_store` is configured and the location uses upstream cache, otherwise `off`
 - **context**: `http`, `server`, `location`
 
 Enable cache-tag indexing for the cache used by the current purge-enabled location. When enabled, the module watches the cache directory, indexes tags found in cached response headers, and allows tag-based `PURGE` requests.
 
-When `cache_pilot_tag_index` is also configured, watched cache files also update the cache-key index used by exact-key fanout and wildcard key-prefix purge paths.
+When `cache_pilot_index_store` is also configured, watched cache files also update the cache-key index used by exact-key fanout and wildcard key-prefix purge paths.
+
+Set `cache_pilot_index off;` to opt out on locations where indexing should stay disabled.
 
 For hard tag purges, matching cache files are removed immediately and the corresponding SQLite index deletes are handed off asynchronously to the owner worker. A successful purge response means all required index deletes were accepted for processing; if that handoff cannot be accepted, the request fails with `500`.
 
@@ -315,7 +317,7 @@ location /_cache_stats {
                 "expired": 0,
         "updating": 0
       },
-      "tag_index": {
+      "index": {
                 "state": "configured",
                 "state_code": 1,
         "backend": "sqlite",
@@ -332,7 +334,7 @@ location /_cache_stats {
 
 Additional zones are omitted for brevity.
 
-`tag_index` is omitted when no `cache_pilot_tag_index` is configured. `tag_index.state_code` uses `0=disabled`, `1=configured`, and `2=ready`. `purges` counters are global across all zones and survive `nginx -s reload`.
+`index` is omitted when no `cache_pilot_index_store` is configured. `index.state_code` uses `0=disabled`, `1=configured`, and `2=ready`. `purges` counters are global across all zones and survive `nginx -s reload`.
 
 **Prometheus metrics** (prefix `nginx_cache_pilot_`):
 
@@ -342,8 +344,8 @@ Additional zones are omitted for brevity.
 - `nginx_cache_pilot_zone_max_size_bytes{zone}` — gauge, configured maximum zone size
 - `nginx_cache_pilot_zone_cold{zone}` — gauge, 1 while the cache loader is still warming the zone
 - `nginx_cache_pilot_zone_entries{zone,state}` — gauge, entry count by state (`valid`, `expired`, `updating`)
-- `nginx_cache_pilot_tag_index_state{zone,state}` — gauge, per-zone key index readiness (`0=disabled`, `1=configured`, `2=ready`)
-- `nginx_cache_pilot_tag_index_info{zone,backend}` — info gauge, tag index backend type
+- `nginx_cache_pilot_index_state{zone,state}` — gauge, per-zone key index readiness (`0=disabled`, `1=configured`, `2=ready`)
+- `nginx_cache_pilot_index_info{zone,backend}` — info gauge, tag index backend type
 - `nginx_cache_pilot_tag_queue_size{zone}` — gauge, pending entries in the inotify write queue
 - `nginx_cache_pilot_tag_queue_capacity{zone}` — gauge, maximum queue capacity
 - `nginx_cache_pilot_tag_queue_dropped_total{zone}` — counter, queue entries dropped due to overflow
@@ -364,7 +366,7 @@ purges fall back to the existing full cache tree walk.
 
 ## Exact-Key Purge Fanout
 
-With `cache_pilot_tag_index` and `cache_pilot_tag_watch` enabled for a zone,
+With `cache_pilot_index_store` and `cache_pilot_index` enabled for a zone,
 exact-key purge can fan out to all files that share the same cache key,
 including `Vary` variants.
 
@@ -393,7 +395,7 @@ For wildcard and `purge_all` soft purges, the module expires both the cache-file
 
 The module can also purge cached objects by cache tag, similar to `Surrogate-Key` or `Cache-Tag` support in other reverse proxies.
 
-When `cache_pilot_tag_index` and `cache_pilot_tag_watch` are enabled:
+When `cache_pilot_index_store` and `cache_pilot_index` are enabled:
 
 - cached response files are parsed for the headers listed in `cache_pilot_tag_headers`
 - `Surrogate-Key` values are parsed as comma- or whitespace-delimited tags
@@ -447,7 +449,7 @@ key purge relies on filesystem walking.
 
 The index is built and kept current through two mechanisms that work together:
 
-**inotify watcher (Linux only).** When `cache_pilot_tag_watch on` is set, one worker process (the owner) opens an `inotify` watch on the cache directory tree. When other workers create or replace a cache file they enqueue a write operation into a shared-memory ring buffer. The owner worker drains this queue on a 10 ms timer and writes the tag associations to the index backend. Delete events are handled the same way.
+**inotify watcher (Linux only).** When `cache_pilot_index on` is set, one worker process (the owner) opens an `inotify` watch on the cache directory tree. When other workers create or replace a cache file they enqueue a write operation into a shared-memory ring buffer. The owner worker drains this queue on a 10 ms timer and writes the tag associations to the index backend. Delete events are handled the same way.
 
 **Cold-start bootstrap.** If a tag `PURGE` request arrives before a zone has been indexed — for example after a restart — the module scans the entire cache directory tree, reads the cached response headers from every file it finds, extracts tags, and writes all associations to the index before completing the purge. The result is recorded so subsequent requests skip the scan.
 
@@ -666,8 +668,8 @@ For manual validation inside the development container, the repository includes 
 It defaults to SQLite for tag indexing and includes a commented Redis alternative:
 
 ```nginx
-cache_pilot_tag_index  sqlite /tmp/ngx_cache_pilot_demo_tags.sqlite;
-# cache_pilot_tag_index  redis redis:6379 db=10;
+cache_pilot_index_store  sqlite /tmp/ngx_cache_pilot_demo_tags.sqlite;
+# cache_pilot_index_store  redis redis:6379 db=10;
 ```
 
 It provides separate locations for these behaviors:
@@ -691,7 +693,7 @@ rm -rf /tmp/ngx_cache_*
 /opt/nginx/sbin/nginx -p /tmp -c /workspace/examples/kitchen-sink.conf
 ```
 
-For Redis-backed validation, start the sidecar first, switch `cache_pilot_tag_index` in the example config to the commented Redis line, and clear the selected database before starting nginx:
+For Redis-backed validation, start the sidecar first, switch `cache_pilot_index_store` in the example config to the commented Redis line, and clear the selected database before starting nginx:
 
 ```bash
 docker compose up -d redis
@@ -788,7 +790,7 @@ curl -i 'http://127.0.0.1:8080/tagged/c'
 
 The two `shared` entries should come back as `EXPIRED`, while `/tagged/c` should remain `HIT`.
 
-Redis-specific validation flows after switching the example config to `cache_pilot_tag_index redis redis:6379 db=10`:
+Redis-specific validation flows after switching the example config to `cache_pilot_index_store redis redis:6379 db=10`:
 
 Watched-location plain `PURGE` fallback:
 

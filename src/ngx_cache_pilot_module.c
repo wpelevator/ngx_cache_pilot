@@ -31,7 +31,7 @@
 #include <nginx.h>
 #include <ngx_core.h>
 #include <ngx_http.h>
-#include "ngx_cache_pilot_tag.h"
+#include "ngx_cache_pilot_index.h"
 #include "ngx_cache_pilot_metrics.h"
 
 
@@ -125,8 +125,8 @@ static ngx_int_t
 ngx_http_cache_pilot_key_index_ready(ngx_http_request_t *r,
                                      ngx_http_file_cache_t *cache,
                                      ngx_http_cache_pilot_main_conf_t **pmcf,
-                                     ngx_http_cache_tag_zone_t **tag_zone,
-                                     ngx_http_cache_tag_store_t **reader);
+                                     ngx_http_cache_index_zone_t **tag_zone,
+                                     ngx_http_cache_index_store_t **reader);
 #if (NGX_CACHE_PILOT_THREADS)
 static ngx_thread_pool_t *ngx_http_cache_pilot_thread_pool(
     ngx_http_request_t *r);
@@ -159,6 +159,8 @@ ngx_int_t   ngx_http_cache_pilot_is_partial(ngx_http_request_t *r);
 static ngx_int_t ngx_http_cache_pilot_dispatch_special(
     ngx_http_request_t *r, ngx_http_file_cache_t *cache,
     ngx_http_cache_pilot_loc_conf_t *cplcf, ngx_flag_t *handled);
+static ngx_flag_t ngx_http_cache_pilot_location_uses_cache(
+    ngx_conf_t *cf);
 
 char       *ngx_http_cache_pilot_conf(ngx_conf_t *cf,
                                       ngx_http_cache_pilot_conf_t *cpcf);
@@ -184,9 +186,9 @@ static ngx_conf_enum_t  ngx_http_cache_pilot_response_types[] = {
 
 static ngx_command_t  ngx_http_cache_pilot_module_commands[] = {
     {
-        ngx_string("cache_pilot_tag_index"),
+        ngx_string("cache_pilot_index_store"),
         NGX_HTTP_MAIN_CONF|NGX_CONF_2MORE,
-        ngx_http_cache_tag_index_conf,
+        ngx_http_cache_index_store_conf,
         NGX_HTTP_MAIN_CONF_OFFSET,
         0,
         NULL
@@ -194,17 +196,17 @@ static ngx_command_t  ngx_http_cache_pilot_module_commands[] = {
     {
         ngx_string("cache_pilot_tag_headers"),
         NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_1MORE,
-        ngx_http_cache_tag_headers_conf,
+        ngx_http_cache_index_headers_conf,
         NGX_HTTP_LOC_CONF_OFFSET,
         0,
         NULL
     },
     {
-        ngx_string("cache_pilot_tag_watch"),
+        ngx_string("cache_pilot_index"),
         NGX_HTTP_MAIN_CONF|NGX_HTTP_SRV_CONF|NGX_HTTP_LOC_CONF|NGX_CONF_FLAG,
         ngx_conf_set_flag_slot,
         NGX_HTTP_LOC_CONF_OFFSET,
-        offsetof(ngx_http_cache_pilot_loc_conf_t, cache_tag_watch),
+        offsetof(ngx_http_cache_pilot_loc_conf_t, cache_index),
         NULL
     },
     {
@@ -328,9 +330,9 @@ ngx_http_cache_pilot_dispatch_special(ngx_http_request_t *r,
 
     *handled = 0;
 
-    if (ngx_http_cache_tag_location_enabled(cplcf)) {
+    if (ngx_http_cache_index_location_enabled(cplcf)) {
         tags = NULL;
-        rc = ngx_http_cache_tag_request_headers(r, &tags);
+        rc = ngx_http_cache_index_request_headers(r, &tags);
         if (rc == NGX_ERROR) {
             return NGX_ERROR;
         }
@@ -340,7 +342,7 @@ ngx_http_cache_pilot_dispatch_special(ngx_http_request_t *r,
             ngx_int_t                         tag_soft;
 
             *handled = 1;
-            rc = ngx_http_cache_tag_purge(r, cache, tags);
+            rc = ngx_http_cache_index_purge(r, cache, tags);
 
             if (rc == NGX_OK) {
                 pmcf_m   = ngx_http_get_module_main_conf(r,
@@ -1809,13 +1811,13 @@ static ngx_int_t
 ngx_http_cache_pilot_key_index_ready(ngx_http_request_t *r,
                                      ngx_http_file_cache_t *cache,
                                      ngx_http_cache_pilot_main_conf_t **pmcf,
-                                     ngx_http_cache_tag_zone_t **tag_zone,
-                                     ngx_http_cache_tag_store_t **reader) {
+                                     ngx_http_cache_index_zone_t **tag_zone,
+                                     ngx_http_cache_index_store_t **reader) {
     *pmcf = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
     *tag_zone = NULL;
     *reader = NULL;
 
-    if (!ngx_http_cache_tag_store_configured(*pmcf)) {
+    if (!ngx_http_cache_index_store_configured(*pmcf)) {
         return NGX_DECLINED;
     }
 
@@ -1823,21 +1825,21 @@ ngx_http_cache_pilot_key_index_ready(ngx_http_request_t *r,
     (void) cache;
     return NGX_DECLINED;
 #else
-    if (ngx_http_cache_tag_flush_pending((ngx_cycle_t *) ngx_cycle) != NGX_OK) {
+    if (ngx_http_cache_index_flush_pending((ngx_cycle_t *) ngx_cycle) != NGX_OK) {
         return NGX_DECLINED;
     }
 
-    *tag_zone = ngx_http_cache_tag_lookup_zone(cache);
+    *tag_zone = ngx_http_cache_index_lookup_zone(cache);
     if (*tag_zone == NULL) {
         return NGX_DECLINED;
     }
 
-    *reader = ngx_http_cache_tag_store_reader(*pmcf, r->connection->log);
+    *reader = ngx_http_cache_index_store_reader(*pmcf, r->connection->log);
     if (*reader == NULL) {
         return NGX_DECLINED;
     }
 
-    return ngx_http_cache_tag_zone_bootstrap_complete(cache)
+    return ngx_http_cache_index_zone_bootstrap_complete(cache)
            ? NGX_OK : NGX_DECLINED;
 #endif
 }
@@ -1959,7 +1961,7 @@ ngx_http_cache_pilot_init_module(ngx_cycle_t *cycle) {
     dir_len = (size_t)(p - pmcf->sqlite_path.data);
     if (dir_len >= sizeof(dir)) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                      "cache_pilot_tag_index sqlite: path too long");
+                      "cache_pilot_index_store sqlite: path too long");
         return NGX_ERROR;
     }
 
@@ -1968,14 +1970,14 @@ ngx_http_cache_pilot_init_module(ngx_cycle_t *cycle) {
 
     if (ngx_file_info(dir, &fi) == NGX_FILE_ERROR) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, ngx_errno,
-                      "cache_pilot_tag_index sqlite: directory \"%s\" not found",
+                      "cache_pilot_index_store sqlite: directory \"%s\" not found",
                       dir);
         return NGX_ERROR;
     }
 
     if (!ngx_is_dir(&fi)) {
         ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                      "cache_pilot_tag_index sqlite: \"%s\" is not a directory",
+                      "cache_pilot_index_store sqlite: \"%s\" is not a directory",
                       dir);
         return NGX_ERROR;
     }
@@ -2002,18 +2004,18 @@ ngx_http_cache_pilot_init_process(ngx_cycle_t *cycle) {
 #if !(NGX_LINUX)
     return NGX_OK;
 #else
-    if (!ngx_http_cache_tag_store_configured(pmcf)) {
+    if (!ngx_http_cache_index_store_configured(pmcf)) {
         return NGX_OK;
     }
 
-    return ngx_http_cache_tag_process_init(cycle, pmcf);
+    return ngx_http_cache_index_process_init(cycle, pmcf);
 #endif
 }
 
 void
 ngx_http_cache_pilot_exit_process(ngx_cycle_t *cycle) {
     (void) cycle;
-    ngx_http_cache_tag_process_exit();
+    ngx_http_cache_index_process_exit();
 }
 
 /*
@@ -2046,8 +2048,8 @@ ngx_http_cache_pilot_handler(ngx_http_request_t *r) {
     tags = NULL;
     mode = ngx_http_cache_pilot_request_mode(r, cplcf->conf->soft);
 
-    if (ngx_http_cache_tag_location_enabled(cplcf)
-            && ngx_http_cache_tag_request_headers(r, &tags) == NGX_OK
+    if (ngx_http_cache_index_location_enabled(cplcf)
+            && ngx_http_cache_index_request_headers(r, &tags) == NGX_OK
             && tags != NULL
             && tags->nelts > 0) {
         rc = NGX_OK;
@@ -2146,8 +2148,8 @@ ngx_http_cache_pilot_exact_purge(ngx_http_request_t *r) {
     {
         ngx_http_cache_pilot_main_conf_t *pmcf_m;
         ngx_int_t                         fanout_used;
-        ngx_http_cache_tag_zone_t       *tag_zone;
-        ngx_http_cache_tag_store_t      *reader;
+        ngx_http_cache_index_zone_t       *tag_zone;
+        ngx_http_cache_index_store_t      *reader;
 
         pmcf_m = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
         NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics, purges_exact_hard);
@@ -2179,7 +2181,7 @@ ngx_http_cache_pilot_exact_purge(ngx_http_request_t *r) {
                 key_text.len = klen;
 
                 fan_paths = NULL;
-                if (ngx_http_cache_tag_store_collect_paths_by_exact_key(
+                if (ngx_http_cache_index_store_collect_paths_by_exact_key(
                             reader, r->pool, &tag_zone->zone_name, &key_text,
                             &fan_paths, r->connection->log) == NGX_OK
                         && fan_paths != NULL && fan_paths->nelts > 0) {
@@ -2220,8 +2222,8 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
     ngx_http_file_cache_t  *cache;
     ngx_http_cache_t       *c;
     ngx_http_cache_pilot_main_conf_t *pmcf_m;
-    ngx_http_cache_tag_zone_t       *tag_zone;
-    ngx_http_cache_tag_store_t      *reader;
+    ngx_http_cache_index_zone_t       *tag_zone;
+    ngx_http_cache_index_store_t      *reader;
     ngx_array_t                     *fan_paths;
     ngx_str_t                       *fp;
     ngx_str_t                       *kv;
@@ -2295,7 +2297,7 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
             key_text.len = klen;
 
             fan_paths = NULL;
-            if (ngx_http_cache_tag_store_collect_paths_by_exact_key(
+            if (ngx_http_cache_index_store_collect_paths_by_exact_key(
                         reader, r->pool, &tag_zone->zone_name, &key_text,
                         &fan_paths, r->connection->log) == NGX_OK
                     && fan_paths != NULL && fan_paths->nelts > 0) {
@@ -2458,8 +2460,8 @@ ngx_http_cache_pilot_partial(ngx_http_request_t *r, ngx_http_file_cache_t *cache
     ngx_int_t                            soft;
     ngx_tree_ctx_t                       tree;
     ngx_http_cache_pilot_main_conf_t    *pmcf_idx;
-    ngx_http_cache_tag_zone_t           *tag_zone;
-    ngx_http_cache_tag_store_t          *reader;
+    ngx_http_cache_index_zone_t           *tag_zone;
+    ngx_http_cache_index_store_t          *reader;
     ngx_array_t                         *idx_paths;
     ngx_int_t                            purge_rc;
     ngx_int_t                            used_index;
@@ -2558,7 +2560,7 @@ ngx_http_cache_pilot_partial(ngx_http_request_t *r, ngx_http_file_cache_t *cache
     if (ngx_http_cache_pilot_key_index_ready(r, cache, &pmcf_idx,
             &tag_zone, &reader) == NGX_OK) {
         idx_paths = NULL;
-        if (ngx_http_cache_tag_store_collect_paths_by_key_prefix(reader,
+        if (ngx_http_cache_index_store_collect_paths_by_key_prefix(reader,
                 r->pool, &tag_zone->zone_name, &key,
                 &idx_paths, r->connection->log) == NGX_OK
                 && idx_paths != NULL && idx_paths->nelts > 0) {
@@ -2727,7 +2729,7 @@ ngx_http_cache_pilot_create_main_conf(ngx_conf_t *cf) {
         return NULL;
     }
 
-    conf->zones = ngx_array_create(cf->pool, 4, sizeof(ngx_http_cache_tag_zone_t));
+    conf->zones = ngx_array_create(cf->pool, 4, sizeof(ngx_http_cache_index_zone_t));
     if (conf->zones == NULL) {
         return NULL;
     }
@@ -2744,8 +2746,8 @@ ngx_http_cache_pilot_init_main_conf(ngx_conf_t *cf, void *conf) {
     ngx_conf_init_size_value(pmcf->queue_shm_size, NGX_HTTP_CACHE_TAG_QUEUE_SIZE);
 
 #if (NGX_LINUX)
-    if (ngx_http_cache_tag_store_configured(pmcf)
-            && ngx_http_cache_tag_queue_init_conf(cf, pmcf) != NGX_OK) {
+    if (ngx_http_cache_index_store_configured(pmcf)
+            && ngx_http_cache_index_queue_init_conf(cf, pmcf) != NGX_OK) {
         return NGX_CONF_ERROR;
     }
 #endif
@@ -2792,7 +2794,7 @@ ngx_http_cache_pilot_create_loc_conf(ngx_conf_t *cf) {
 # endif /* NGX_HTTP_UWSGI */
 
     conf->resptype = NGX_CONF_UNSET_UINT;
-    conf->cache_tag_watch = NGX_CONF_UNSET;
+    conf->cache_index = NGX_CONF_UNSET;
     conf->purge_mode_header.len = 0;
     conf->purge_mode_header.data = NULL;
 
@@ -2839,8 +2841,8 @@ ngx_http_fastcgi_cache_purge_attach(ngx_conf_t *cf,
         conf->original_handler = clcf->handler;
         clcf->handler = ngx_http_cache_pilot_access_handler;
 
-        if (conf->cache_tag_watch && conf->handler != NULL
-                && ngx_http_cache_tag_register_cache(cf,
+        if (conf->cache_index && conf->handler != NULL
+                && ngx_http_cache_index_register_cache(cf,
 #  if (nginx_version >= 1007009)
                         flcf->upstream.cache_zone ? flcf->upstream.cache_zone->data : NULL
 #  else
@@ -2866,7 +2868,7 @@ ngx_http_fastcgi_cache_purge_attach(ngx_conf_t *cf,
     conf->original_handler = clcf->handler;
     clcf->handler = ngx_http_cache_pilot_access_handler;
 
-    if (conf->cache_tag_watch && ngx_http_cache_tag_register_cache(cf,
+    if (conf->cache_index && ngx_http_cache_index_register_cache(cf,
 #  if (nginx_version >= 1007009)
             flcf->upstream.cache_zone ? flcf->upstream.cache_zone->data : NULL
 #  else
@@ -2918,8 +2920,8 @@ ngx_http_proxy_cache_purge_attach(ngx_conf_t *cf,
         conf->original_handler = clcf->handler;
         clcf->handler = ngx_http_cache_pilot_access_handler;
 
-        if (conf->cache_tag_watch && conf->handler != NULL
-                && ngx_http_cache_tag_register_cache(cf,
+        if (conf->cache_index && conf->handler != NULL
+                && ngx_http_cache_index_register_cache(cf,
 #  if (nginx_version >= 1007009)
                         plcf->upstream.cache_zone ? plcf->upstream.cache_zone->data : NULL
 #  else
@@ -2945,7 +2947,7 @@ ngx_http_proxy_cache_purge_attach(ngx_conf_t *cf,
     conf->original_handler = clcf->handler;
     clcf->handler = ngx_http_cache_pilot_access_handler;
 
-    if (conf->cache_tag_watch && ngx_http_cache_tag_register_cache(cf,
+    if (conf->cache_index && ngx_http_cache_index_register_cache(cf,
 #  if (nginx_version >= 1007009)
             plcf->upstream.cache_zone ? plcf->upstream.cache_zone->data : NULL
 #  else
@@ -2997,8 +2999,8 @@ ngx_http_scgi_cache_purge_attach(ngx_conf_t *cf,
         conf->original_handler = clcf->handler;
         clcf->handler = ngx_http_cache_pilot_access_handler;
 
-        if (conf->cache_tag_watch && conf->handler != NULL
-                && ngx_http_cache_tag_register_cache(cf,
+        if (conf->cache_index && conf->handler != NULL
+                && ngx_http_cache_index_register_cache(cf,
 #  if (nginx_version >= 1007009)
                         slcf->upstream.cache_zone ? slcf->upstream.cache_zone->data : NULL
 #  else
@@ -3024,7 +3026,7 @@ ngx_http_scgi_cache_purge_attach(ngx_conf_t *cf,
     conf->original_handler = clcf->handler;
     clcf->handler = ngx_http_cache_pilot_access_handler;
 
-    if (conf->cache_tag_watch && ngx_http_cache_tag_register_cache(cf,
+    if (conf->cache_index && ngx_http_cache_index_register_cache(cf,
 #  if (nginx_version >= 1007009)
             slcf->upstream.cache_zone ? slcf->upstream.cache_zone->data : NULL
 #  else
@@ -3076,8 +3078,8 @@ ngx_http_uwsgi_cache_purge_attach(ngx_conf_t *cf,
         conf->original_handler = clcf->handler;
         clcf->handler = ngx_http_cache_pilot_access_handler;
 
-        if (conf->cache_tag_watch && conf->handler != NULL
-                && ngx_http_cache_tag_register_cache(cf,
+        if (conf->cache_index && conf->handler != NULL
+                && ngx_http_cache_index_register_cache(cf,
 #  if (nginx_version >= 1007009)
                         ulcf->upstream.cache_zone ? ulcf->upstream.cache_zone->data : NULL
 #  else
@@ -3103,7 +3105,7 @@ ngx_http_uwsgi_cache_purge_attach(ngx_conf_t *cf,
     conf->original_handler = clcf->handler;
     clcf->handler = ngx_http_cache_pilot_access_handler;
 
-    if (conf->cache_tag_watch && ngx_http_cache_tag_register_cache(cf,
+    if (conf->cache_index && ngx_http_cache_index_register_cache(cf,
 #  if (nginx_version >= 1007009)
             ulcf->upstream.cache_zone ? ulcf->upstream.cache_zone->data : NULL
 #  else
@@ -3117,10 +3119,97 @@ ngx_http_uwsgi_cache_purge_attach(ngx_conf_t *cf,
 }
 #endif
 
+static ngx_flag_t
+ngx_http_cache_pilot_location_uses_cache(ngx_conf_t *cf) {
+# if (NGX_HTTP_FASTCGI)
+    ngx_http_fastcgi_loc_conf_t      *flcf;
+    ngx_flag_t                        fastcgi_cache;
+# endif
+# if (NGX_HTTP_PROXY)
+    ngx_http_proxy_loc_conf_t        *plcf;
+    ngx_flag_t                        proxy_cache;
+# endif
+# if (NGX_HTTP_SCGI)
+    ngx_http_scgi_loc_conf_t         *slcf;
+    ngx_flag_t                        scgi_cache;
+# endif
+# if (NGX_HTTP_UWSGI)
+    ngx_http_uwsgi_loc_conf_t        *ulcf;
+    ngx_flag_t                        uwsgi_cache;
+# endif
+
+# if (NGX_HTTP_FASTCGI)
+    flcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_fastcgi_module);
+#  if (nginx_version >= 1007009)
+    fastcgi_cache = flcf->upstream.cache > 0
+                    || flcf->upstream.cache_zone != NULL
+                    || flcf->upstream.cache_value != NULL;
+#  else
+    fastcgi_cache = flcf->upstream.cache != NGX_CONF_UNSET_PTR
+                    && flcf->upstream.cache != NULL;
+#  endif
+
+    if (fastcgi_cache) {
+        return 1;
+    }
+# endif
+
+# if (NGX_HTTP_PROXY)
+    plcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_proxy_module);
+#  if (nginx_version >= 1007009)
+    proxy_cache = plcf->upstream.cache > 0
+                  || plcf->upstream.cache_zone != NULL
+                  || plcf->upstream.cache_value != NULL;
+#  else
+    proxy_cache = plcf->upstream.cache != NGX_CONF_UNSET_PTR
+                  && plcf->upstream.cache != NULL;
+#  endif
+
+    if (proxy_cache) {
+        return 1;
+    }
+# endif
+
+# if (NGX_HTTP_SCGI)
+    slcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_scgi_module);
+#  if (nginx_version >= 1007009)
+    scgi_cache = slcf->upstream.cache > 0
+                 || slcf->upstream.cache_zone != NULL
+                 || slcf->upstream.cache_value != NULL;
+#  else
+    scgi_cache = slcf->upstream.cache != NGX_CONF_UNSET_PTR
+                 && slcf->upstream.cache != NULL;
+#  endif
+
+    if (scgi_cache) {
+        return 1;
+    }
+# endif
+
+# if (NGX_HTTP_UWSGI)
+    ulcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_uwsgi_module);
+#  if (nginx_version >= 1007009)
+    uwsgi_cache = ulcf->upstream.cache > 0
+                  || ulcf->upstream.cache_zone != NULL
+                  || ulcf->upstream.cache_value != NULL;
+#  else
+    uwsgi_cache = ulcf->upstream.cache != NGX_CONF_UNSET_PTR
+                  && ulcf->upstream.cache != NULL;
+#  endif
+
+    if (uwsgi_cache) {
+        return 1;
+    }
+# endif
+
+    return 0;
+}
+
 char *
 ngx_http_cache_pilot_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
     ngx_http_cache_pilot_loc_conf_t  *prev = parent;
     ngx_http_cache_pilot_loc_conf_t  *conf = child;
+    ngx_http_cache_pilot_main_conf_t *pmcf;
     ngx_http_core_loc_conf_t         *clcf;
     ngx_str_t                        *header;
 # if (NGX_HTTP_FASTCGI)
@@ -3137,9 +3226,17 @@ ngx_http_cache_pilot_merge_loc_conf(ngx_conf_t *cf, void *parent, void *child) {
 # endif /* NGX_HTTP_UWSGI */
 
     clcf = ngx_http_conf_get_module_loc_conf(cf, ngx_http_core_module);
+    pmcf = ngx_http_conf_get_module_main_conf(cf, ngx_http_cache_pilot_module);
+
+    if (conf->cache_index == NGX_CONF_UNSET
+            && prev->cache_index == NGX_CONF_UNSET
+            && ngx_http_cache_index_store_configured(pmcf)
+            && ngx_http_cache_pilot_location_uses_cache(cf)) {
+        conf->cache_index = 1;
+    }
 
     ngx_conf_merge_uint_value(conf->resptype, prev->resptype, NGX_RESPONSE_TYPE_HTML);
-    ngx_conf_merge_value(conf->cache_tag_watch, prev->cache_tag_watch, 0);
+    ngx_conf_merge_value(conf->cache_index, prev->cache_index, 0);
     ngx_conf_merge_str_value(conf->purge_mode_header, prev->purge_mode_header, "");
 
     if (conf->cache_tag_headers == NULL) {
