@@ -259,6 +259,16 @@ Set `cache_pilot_index off;` to opt out on locations where indexing should stay 
 
 For hard tag purges, matching cache files are removed immediately and the corresponding SQLite index deletes are handed off asynchronously to the owner worker. A successful purge response means all required index deletes were accepted for processing; if that handoff cannot be accepted, the request fails with `500`.
 
+#### `cache_pilot_tag_queue_size`
+
+- **syntax**: `cache_pilot_tag_queue_size <size>`
+- **default**: `2m`
+- **context**: `http`
+
+Set the size of the shared-memory zone that backs the worker-to-owner write queue used by the Linux cache-index watcher.
+
+This is an advanced tuning directive for deployments that use `cache_pilot_index_store`. In the current implementation, the queue capacity remains fixed at 256 entries; this directive changes the shared-memory allocation for the queue rather than the queue length itself.
+
 #### `cache_pilot_stats`
 
 - **syntax**: `cache_pilot_stats [zone ...]`
@@ -457,7 +467,7 @@ The index is built and kept current through two mechanisms that work together:
 
 ### Shared-memory write queue
 
-Workers communicate with the index-owning worker through a fixed-size ring buffer allocated in shared memory (2 MB zone, capacity 256 entries). Each entry holds an operation type (replace or delete), the zone name, and the full cache file path. If the buffer is full the operation is dropped and a warning is logged; the cache file itself is still served and purged normally, but that file's index entry may become stale until the next inotify event corrects it.
+Workers communicate with the index-owning worker through a fixed-size ring buffer allocated in shared memory (default 2 MB zone, configurable with `cache_pilot_tag_queue_size`, capacity 256 entries). Each entry holds an operation type (replace or delete), the zone name, and the full cache file path. If the buffer is full the operation is dropped and a warning is logged; the cache file itself is still served and purged normally, but that file's index entry may become stale until the next inotify event corrects it.
 
 ### SQLite backend
 
