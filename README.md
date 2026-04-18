@@ -33,8 +33,8 @@ http {
 
     # Restrict purging to specific IPs and the PURGE method.
     map $request_method:$remote_addr $purge_request {
-        default         0;
-        PURGE:127.0.0.1 1;
+        default         off;
+        PURGE:127.0.0.1 on;
     }
 
     server {
@@ -71,8 +71,8 @@ http {
     cache_pilot_index_store  sqlite /tmp/ngx_cache_pilot_tags.sqlite;
 
     map $request_method:$remote_addr $purge_request {
-        default         0;
-        PURGE:127.0.0.1 1;
+        default         off;
+        PURGE:127.0.0.1 on;
     }
 
     server {
@@ -550,8 +550,8 @@ Use these as compact starting points after Quick Start.
 http {
     proxy_cache_path /tmp/cache keys_zone=tmpcache:10m;
     map $request_method:$remote_addr $purge_request {
-        default         0;
-        PURGE:127.0.0.1 1;
+        default         off;
+        PURGE:127.0.0.1 on;
     }
 
     server {
