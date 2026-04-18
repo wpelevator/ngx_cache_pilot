@@ -166,6 +166,7 @@ char       *ngx_http_cache_pilot_conf(ngx_conf_t *cf,
                                       ngx_http_cache_pilot_conf_t *cpcf);
 static ngx_int_t ngx_http_cache_pilot_complex_value_set(
     ngx_http_complex_value_t *cv);
+static ngx_int_t ngx_http_cache_pilot_value_enabled(ngx_str_t *value);
 
 void       *ngx_http_cache_pilot_create_main_conf(ngx_conf_t *cf);
 char       *ngx_http_cache_pilot_init_main_conf(ngx_conf_t *cf, void *conf);
@@ -1636,18 +1637,30 @@ ngx_http_cache_pilot_enabled(ngx_http_request_t *r,
             return NGX_DECLINED;
         }
 
-        if (value.len == 0) {
-            continue;
+        if (ngx_http_cache_pilot_value_enabled(&value) == NGX_OK) {
+            return NGX_OK;
         }
-
-        if (value.len == 1 && value.data[0] == '0') {
-            continue;
-        }
-
-        return NGX_OK;
     }
 
     return NGX_DECLINED;
+}
+
+static ngx_int_t
+ngx_http_cache_pilot_value_enabled(ngx_str_t *value) {
+    if (value->len == 0) {
+        return NGX_DECLINED;
+    }
+
+    if (value->len == 1 && value->data[0] == '0') {
+        return NGX_DECLINED;
+    }
+
+    if (value->len == 3
+            && ngx_strncasecmp(value->data, (u_char *) "off", 3) == 0) {
+        return NGX_DECLINED;
+    }
+
+    return NGX_OK;
 }
 
 ngx_int_t
