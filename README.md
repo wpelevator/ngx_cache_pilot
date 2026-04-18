@@ -356,13 +356,14 @@ purges fall back to the existing full cache tree walk.
 ## Exact-Key Purge Fanout
 
 With `cache_pilot_tag_index` and `cache_pilot_tag_watch` enabled for a zone,
-exact-key hard purge can fan out to all files that share the same cache key,
+exact-key purge can fan out to all files that share the same cache key,
 including `Vary` variants.
 
 Behavior summary:
 
-- exact-key purge always removes the directly resolved cache file
-- when key-index data is ready for the zone, exact-key hard purge also removes sibling files sharing the same key
+- exact-key hard purge always removes the directly resolved cache file
+- exact-key soft purge always expires the directly resolved cache file
+- when key-index data is ready for the zone, exact-key hard and soft purge also fan out to sibling files sharing the same key
 - if key-index data is unavailable or not yet ready, exact-key purge does not do a full cache scan
 
 ## Soft Purge
@@ -373,7 +374,7 @@ If `cache_pilot_purge_mode_header` is configured, exact-key, wildcard, and cache
 
 The `soft` config parameter still controls `purge_all`, which does not honor `cache_pilot_purge_mode_header`.
 
-- Exact-key soft purge marks the cached entry as expired, so the next request is handled as `EXPIRED` rather than a deletion-driven `MISS`.
+- Exact-key soft purge marks the cached entry as expired, so the next request is handled as `EXPIRED` rather than a deletion-driven `MISS`; when key-index fanout is available it applies this expiration to sibling variants sharing the same key.
 - Wildcard soft purge applies the same expiration behavior to all matching keys.
 - `purge_all` can also be combined with `soft` to expire every cached entry in a zone without removing the underlying cache files immediately.
 
@@ -585,7 +586,7 @@ The minimal cache-tag setup is already shown in Quick Start. Use that pattern wh
 
 ## Known issues
 
-- Exact-key hard purge fanout across `Vary` variants depends on key-index readiness for the zone. If key-index data is unavailable or not yet ready, exact-key purge removes only the directly resolved cache file and does not run a full cache scan.
+- Exact-key fanout across `Vary` variants depends on key-index readiness for the zone. If key-index data is unavailable or not yet ready, exact-key purge targets only the directly resolved cache file and does not run a full cache scan.
 
 ## Development
 

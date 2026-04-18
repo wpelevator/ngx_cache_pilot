@@ -1814,8 +1814,6 @@ ngx_http_cache_pilot_key_index_ready(ngx_http_request_t *r,
                                      ngx_http_cache_pilot_main_conf_t **pmcf,
                                      ngx_http_cache_tag_zone_t **tag_zone,
                                      ngx_http_cache_tag_store_t **reader) {
-    ngx_http_cache_tag_zone_state_t  state;
-
     *pmcf = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
     *tag_zone = NULL;
     *reader = NULL;
@@ -1838,12 +1836,8 @@ ngx_http_cache_pilot_key_index_ready(ngx_http_request_t *r,
         return NGX_DECLINED;
     }
 
-    if (ngx_http_cache_tag_store_get_zone_state(*reader, &(*tag_zone)->zone_name,
-            &state, r->connection->log) != NGX_OK) {
-        return NGX_DECLINED;
-    }
-
-    return state.bootstrap_complete ? NGX_OK : NGX_DECLINED;
+    return ngx_http_cache_tag_zone_bootstrap_complete(cache)
+           ? NGX_OK : NGX_DECLINED;
 }
 #endif
 # if (nginx_version >= 1007009)
@@ -2022,20 +2016,15 @@ ngx_http_cache_pilot_exit_process(ngx_cycle_t *cycle) {
 }
 
 /*
- * Known limitation: gzip_vary and Vary-based cache variants
+ * Vary-aware key purge behavior:
  *
- * When gzip_vary (or brotli_vary / zstd_vary) is enabled, nginx stores a
- * separate cache file for each Accept-Encoding variant of the same URL.
- * Each variant has a different on-disk hash derived from the primary key
- * combined with the Vary header value, so a single key-based purge (which
- * uses ngx_http_file_cache_open) can only remove the one variant whose
- * Vary headers match the incoming purge request.
+ * - Exact-key purge always removes/expires the directly resolved cache file.
+ * - When key-index state is ready for the zone, exact-key purge can fan out
+ *   to sibling files sharing the same cache key (for example Vary variants).
+ * - When key-index is unavailable or not yet ready, exact-key purge does not
+ *   fall back to a full cache tree walk.
  *
- * Workaround: use cache tags.  Every cached file — including each Vary
- * variant — is independently registered in the tag store at write time, so
- * a tag-based purge finds and removes all variants regardless of encoding.
- * Configure cache_tag / cache_tag_store and tag your responses to take
- * advantage of this.
+ * Cache tags remain the most robust way to target arbitrary variant groups.
  */
 
 void
@@ -2228,9 +2217,23 @@ ngx_http_cache_pilot_exact_purge(ngx_http_request_t *r) {
 
 ngx_int_t
 ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
+    ngx_int_t              fanout_used;
+    ngx_int_t              purge_rc;
     ngx_int_t              rc;
     ngx_http_file_cache_t  *cache;
     ngx_http_cache_t       *c;
+    ngx_http_cache_pilot_main_conf_t *pmcf_m;
+#if (NGX_LINUX)
+    ngx_http_cache_tag_zone_t       *tag_zone;
+    ngx_http_cache_tag_store_t      *reader;
+    ngx_array_t                     *fan_paths;
+    ngx_str_t                       *fp;
+    ngx_str_t                       *kv;
+    ngx_str_t                        key_text;
+    ngx_uint_t                       ki;
+    ngx_uint_t                       klen;
+    u_char                          *p;
+#endif
 
     switch (ngx_http_file_cache_open(r)) {
     case NGX_OK:
@@ -2276,10 +2279,60 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
 
     ngx_shmtx_unlock(&cache->shpool->mutex);
 
+    fanout_used = 0;
+#if (NGX_LINUX)
+    /* Key-index fan-out for soft purge: expire sibling Vary variants. */
+    pmcf_m = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
+    if (ngx_http_cache_pilot_key_index_ready(r, cache, &pmcf_m,
+            &tag_zone, &reader) == NGX_OK) {
+        kv = c->keys.elts;
+        klen = 0;
+        for (ki = 0; ki < c->keys.nelts; ki++) {
+            klen += kv[ki].len;
+        }
+
+        key_text.data = ngx_pnalloc(r->pool, klen + 1);
+        if (key_text.data != NULL) {
+            p = key_text.data;
+            for (ki = 0; ki < c->keys.nelts; ki++) {
+                p = ngx_cpymem(p, kv[ki].data, kv[ki].len);
+            }
+            *p = '\0';
+            key_text.len = klen;
+
+            fan_paths = NULL;
+            if (ngx_http_cache_tag_store_collect_paths_by_exact_key(
+                        reader, r->pool, &tag_zone->zone_name, &key_text,
+                        &fan_paths, r->connection->log) == NGX_OK
+                    && fan_paths != NULL && fan_paths->nelts > 0) {
+                fp = fan_paths->elts;
+                for (ki = 0; ki < fan_paths->nelts; ki++) {
+                    purge_rc = ngx_http_cache_pilot_by_path(cache, &fp[ki], 1,
+                                                            r->connection->log);
+                    if (purge_rc == NGX_OK) {
+                        fanout_used = 1;
+                        continue;
+                    }
+
+                    if (purge_rc != NGX_DECLINED) {
+                        ngx_http_cache_pilot_release_updating(c);
+                        return NGX_ERROR;
+                    }
+                }
+            }
+        }
+    }
+#endif
+
     {
-        ngx_http_cache_pilot_main_conf_t *pmcf_m;
         pmcf_m = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
         NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics, purges_exact_soft);
+#if (NGX_LINUX)
+        if (fanout_used) {
+            NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics,
+                                        key_index_exact_fanout);
+        }
+#endif
     }
 
     ngx_http_cache_pilot_release_updating(c);
