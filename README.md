@@ -163,6 +163,14 @@ If you want the included containerized build environment, tests, or the manual v
 
 ## Configuration Reference
 
+Directive names documented in this section are part of the module's public
+configuration API and are intended to stay stable. New configuration knobs
+should extend one of the existing directive families rather than introduce
+parallel synonyms or replacement spellings:
+
+- `fastcgi_cache_purge`, `proxy_cache_purge`, `scgi_cache_purge`, and `uwsgi_cache_purge` for upstream-cache purge integration
+- `cache_pilot_*` for module-owned features such as indexing, tag handling, purge response behavior, metrics, and tuning
+
 #### `fastcgi_cache_purge`
 
 - **syntax**: `fastcgi_cache_purge string ... [soft] [purge_all]`
