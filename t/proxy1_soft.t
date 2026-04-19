@@ -107,7 +107,7 @@ X-Purge-Mode: soft
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
---- response_body_like: ^\{\"key\": \"\/proxy\/passwd\?t=proxy-soft-html\", \"cache_pilot\": \{\"purged\": \{\"by_key\": 1, \"by_tag\": 0\}\}\}$
+--- response_body_like: ^\{\"key\": \"\/proxy\/passwd\?t=proxy-soft-html\", \"cache_pilot\": \{\"purged\": \{\"exact\": \{\"hard\": 0, \"soft\": 1\}, \"wildcard\": \{\"hard\": 0, \"soft\": 0\}, \"tag\": \{\"hard\": 0, \"soft\": 0\}, \"all\": \{\"hard\": 0, \"soft\": 0\}\}\}\}$
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 4: < 0.8.3 or < 0.7.62
@@ -150,7 +150,7 @@ X-Purge-Mode: soft
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
---- response_body_like: ^\{\"key\": \"\/proxy\/passwd\?t=proxy-soft-json\", \"cache_pilot\": \{\"purged\": \{\"by_key\": 1, \"by_tag\": 0\}\}\}$
+--- response_body_like: ^\{\"key\": \"\/proxy\/passwd\?t=proxy-soft-json\", \"cache_pilot\": \{\"purged\": \{\"exact\": \{\"hard\": 0, \"soft\": 1\}, \"wildcard\": \{\"hard\": 0, \"soft\": 0\}, \"tag\": \{\"hard\": 0, \"soft\": 0\}, \"all\": \{\"hard\": 0, \"soft\": 0\}\}\}\}$
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 4: < 0.8.3 or < 0.7.62
