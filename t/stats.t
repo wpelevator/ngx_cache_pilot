@@ -5,8 +5,7 @@ use Test::Nginx::Socket;
 
 repeat_each(1);
 
-# This file currently emits 56 assertions in total.
-plan tests => repeat_each() * 56;
+plan tests => repeat_each() * 80;
 
 our $http_config = <<'_EOC_';
     proxy_cache_path  /tmp/ngx_cache_pilot_stats_cache  keys_zone=stats_test:10m;
@@ -40,6 +39,7 @@ our $config = <<'_EOC_';
     location = /_stats_filtered {
         cache_pilot_stats stats_test;
     }
+
 _EOC_
 
 worker_connections(128);
@@ -240,6 +240,93 @@ GET /_stats_filtered
 --- response_headers
 Content-Type: application/json
 --- response_body_unlike: "stats_test2"
+--- timeout: 10
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 15: entries are counted immediately after caching (JSON)
+--- http_config eval: $::http_config
+--- config eval: $::config
+--- request eval
+[
+    'GET /proxy/passwd?t=valid_check',
+    'GET /_stats',
+]
+--- error_code eval
+[200, 200]
+--- response_body_like eval
+[
+    'root',
+    '"entries":\{"total":1,"valid":[0-9]+,"expired":[0-9]+,"updating":0\}',
+]
+--- timeout: 10
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 16: entry counts are reported in Prometheus format
+--- http_config eval: $::http_config
+--- config eval: $::config
+--- request eval
+[
+    'GET /proxy/passwd?t=prom_valid_check',
+    'GET /_stats?format=prometheus',
+]
+--- error_code eval
+[200, 200]
+--- response_body_like eval
+[
+    'root',
+    'nginx_cache_pilot_zone_entries\{zone="stats_test",state="(valid|expired)"\} [1-9]',
+]
+--- timeout: 10
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 17: cold state is reported for zone snapshots in JSON
+--- http_config eval: $::http_config
+--- config eval: $::config
+--- request
+GET /_stats
+--- error_code: 200
+--- response_headers
+Content-Type: application/json
+--- response_body_like: "stats_test":\{.*"cold":(true|false).*,"entries":\{"total":[0-9]+,"valid":[0-9]+,"expired":[0-9]+,"updating":[0-9]+\}
+--- timeout: 10
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 18: cold state is reported for zone snapshots in Prometheus
+--- http_config eval: $::http_config
+--- config eval: $::config
+--- request
+GET /_stats?format=prometheus
+--- error_code: 200
+--- response_headers
+Content-Type: text/plain; version=0.0.4; charset=utf-8
+--- response_body_like: nginx_cache_pilot_zone_cold\{zone="stats_test"\} [01]
+--- timeout: 10
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 19: Prometheus exposes all entry state variants
+--- http_config eval: $::http_config
+--- config eval: $::config
+--- request
+GET /_stats?format=prometheus
+--- error_code: 200
+--- response_headers
+Content-Type: text/plain; version=0.0.4; charset=utf-8
+--- response_body_like: (?s)nginx_cache_pilot_zone_entries\{zone="stats_test",state="valid"\} [0-9]+.*nginx_cache_pilot_zone_entries\{zone="stats_test",state="expired"\} [0-9]+.*nginx_cache_pilot_zone_entries\{zone="stats_test",state="updating"\} [0-9]+
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/

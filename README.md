@@ -83,7 +83,7 @@ When `cache_pilot_index_zone_size` and `cache_pilot_index` are enabled for a zon
 the module also maintains a cache-key index. That key index is used to:
 
 - fan out exact-key hard purges across files that share the same key (for example, `Vary` variants)
-- serve wildcard key purges from key-prefix lookups before falling back to filesystem walking
+- serve wildcard key purges from in-memory key metadata before falling back to filesystem walking
 
 For most users, the simplest starting point is a cached location plus a `PURGE` method restricted to trusted clients.
 
@@ -312,7 +312,14 @@ In practice, the zone survives worker reuse within the same running nginx instan
 This zone also stores cache-key metadata used by key-based purge acceleration:
 
 - exact-key hard purge fanout across sibling files sharing one cache key
-- wildcard key-prefix lookup
+- wildcard key-prefix candidate matching
+
+The same zone also stores the shared-memory tag index used by cache-tag purges. Shared-memory usage therefore scales with:
+
+- the number of cached files tracked by the index
+- the number of distinct exact cache keys tracked for fanout
+- the number of distinct tags
+- the total number of file-tag relations
 
 #### `cache_pilot_tag_headers`
 
@@ -332,7 +339,7 @@ All watched locations that share the same cache zone must use the same `cache_pi
 
 Enable cache-tag indexing for the cache used by the current purge-enabled location. When enabled, the module watches the cache directory, indexes tags found in cached response headers, and allows tag-based `PURGE` requests.
 
-When `cache_pilot_index_zone_size` is also configured, watched cache files also update the cache-key index used by exact-key fanout and wildcard key-prefix purge paths.
+When `cache_pilot_index_zone_size` is also configured, watched cache files also update the shared-memory exact-key index used by exact-key fanout. Wildcard key-prefix purge paths reuse the same in-memory file metadata, but do not yet use a dedicated prefix tree.
 
 Set `cache_pilot_index off;` to opt out on locations where indexing should stay disabled.
 
@@ -466,8 +473,10 @@ curl -X PURGE /page*
 The asterisk must be the last character of the key, so you must put the `$uri` variable at the end of the configured cache key.
 
 When key-index metadata is available and ready for the zone, wildcard purges use
-key-prefix lookups first. If key-index data is unavailable for the zone, wildcard
-purges fall back to the existing full cache tree walk.
+in-memory key metadata first. That avoids a filesystem walk, but it is still a
+linear scan over indexed file metadata for the zone rather than a dedicated
+prefix index. If key-index data is unavailable for the zone, wildcard purges
+fall back to the existing full cache tree walk.
 
 ## Exact-Key Purge Fanout
 
@@ -505,8 +514,9 @@ When `cache_pilot_index_zone_size` and `cache_pilot_index` are enabled:
 - cached response files are parsed for the headers listed in `cache_pilot_tag_headers`
 - `Surrogate-Key` values are parsed as comma- or whitespace-delimited tags
 - `Cache-Tag` values are parsed as comma- or whitespace-delimited tags
-- the module stores a tag-to-cache-file index in shared memory
-- the module stores cache-key metadata used for exact-key fanout and wildcard key-prefix purge
+- the module stores a shared-memory tag-to-cache-file index
+- the module stores a shared-memory exact-key index used for exact-key fanout across sibling files sharing one cache key
+- the module stores per-file cache-key metadata reused by wildcard key-prefix purge
 - on Linux, a worker-owned `inotify` watcher keeps the index up to date as cache files are created, replaced, or removed
 
 To purge by tag, send a normal `PURGE` request and include one or more tag headers:
@@ -539,6 +549,7 @@ Notes:
 ## Known issues
 
 - Exact-key fanout across `Vary` variants depends on key-index readiness for the zone. If key-index data is unavailable or not yet ready, exact-key purge targets only the directly resolved cache file and does not run a full cache scan.
+- Wildcard purges still use a linear scan over in-memory key metadata when the index is ready. They avoid a filesystem walk in that case, but they are not yet backed by a dedicated prefix index.
 
 ## Cache Index Architecture
 
@@ -549,7 +560,8 @@ This section describes how the cache index works internally. It is not required 
 The cache index stores both:
 
 - tag-to-path associations for cache-tag and surrogate-key purge
-- cache-key metadata used by exact-key fanout and wildcard key-prefix lookup
+- exact-key associations used for fanout across sibling files sharing one cache key
+- per-file cache-key metadata reused by wildcard key-prefix matching
 
 Without index data, tag purge would have no efficient path lookup, and wildcard
 key purge relies on filesystem walking.
@@ -566,13 +578,13 @@ The index is built and kept current through two mechanisms that work together:
 
 ### Shared-memory index
 
-The module stores tag associations, cache-key metadata, and per-zone bootstrap state inside an nginx shared-memory zone created by `cache_pilot_index_zone_size`.
+The module stores tag associations, exact-key associations, per-file cache-key metadata, and per-zone bootstrap state inside an nginx shared-memory zone created by `cache_pilot_index_zone_size`.
 
-**Read path.** Tag purges look up matching cache paths from the in-memory zone. Exact-key fanout and wildcard key-prefix purge paths read the same in-memory metadata before deciding whether a filesystem walk is needed.
+**Read path.** Tag purges look up matching cache paths from the in-memory tag index. Exact-key fanout looks up sibling paths from the in-memory exact-key index. Wildcard key-prefix purges read in-memory per-file key metadata before deciding whether a filesystem walk is needed.
 
 **Write path.** The owner worker updates the in-memory zone as cache files are created, replaced, or removed. Hard purges delete the cache file and remove the corresponding in-memory entry in the same request path.
 
-**Storage estimate.** Shared-memory usage scales with the number of cached files, their tag counts, and the size of stored cache keys and paths. Start with `32m` for moderate tag usage and increase it if your cache holds a large number of tagged objects.
+**Storage estimate.** Shared-memory usage scales with the number of cached files, the number of distinct exact keys and tags, the total number of file-tag relations, and the size of stored cache keys and paths. Exact-key fanout now pays extra metadata per tracked file, and tag purge now pays extra metadata per file-tag relation. Start with `32m` for moderate tag usage and increase it if your cache holds a large number of tagged objects or many tags per object.
 
 ### Purge flow
 
