@@ -71,7 +71,7 @@ my $override_template = defined $options{config_template}
     ? resolve_config_template(\%config_templates, $options{config_template})
     : undef;
 
-my @default_scenarios = (
+my @all_scenarios = (
     {
         key        => 'exact',
         name       => 'exact_purge',
@@ -101,7 +101,9 @@ my @default_scenarios = (
         mode       => 'tag',
         tag_base   => 'bench-tag',
         backend    => 'sqlite',
-        index_tracking_mode => 'disabled',
+        index_target_zone => 'bench_tag_sqlite',
+        require_index_zone_ready => 0,
+        index_tracking_mode => 'readiness_only',
     },
     {
         key        => 'tag-redis',
@@ -112,11 +114,10 @@ my @default_scenarios = (
         mode       => 'tag',
         tag_base   => 'bench-rtag',
         backend    => 'redis',
-        index_tracking_mode => 'disabled',
+        index_target_zone => 'bench_tag_redis',
+        require_index_zone_ready => 0,
+        index_tracking_mode => 'readiness_only',
     },
-);
-
-my @isolated_scenarios = (
     {
         key        => 'exact-indexed',
         name       => 'exact_indexed_purge',
@@ -159,14 +160,9 @@ my @isolated_scenarios = (
     },
 );
 
-my @all_scenarios = (
-    @default_scenarios,
-    @isolated_scenarios,
-);
-
 my %scenario_sets = (
-    default => [ map { $_->{key} } @default_scenarios ],
-    isolated => [ map { $_->{key} } @isolated_scenarios ],
+    default => [ map { $_->{key} } @all_scenarios ],
+    isolated => [ qw(exact-indexed exact-fanout wild-indexed) ],
     all => [ map { $_->{key} } @all_scenarios ],
 );
 

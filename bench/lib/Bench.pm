@@ -131,61 +131,24 @@ sub _format_hit_percent {
     return sprintf('%.1f%%', ($ratio || 0) * 100);
 }
 
-sub _has_index_tracking {
-    my ($results) = @_;
-
-    for my $result (@{$results}) {
-        next unless ref($result->{index_plan}) eq 'HASH';
-        next unless defined $result->{index_plan}->{tracking_mode};
-        return 1 if $result->{index_plan}->{tracking_mode} ne 'disabled';
-    }
-
-    return 0;
-}
-
 sub format_table {
     my ($results) = @_;
-
-    if (_has_index_tracking($results)) {
-        my @lines = (
-            sprintf('%-22s %8s %7s %7s %7s %6s %7s %8s %9s',
-                'Scenario', 'GET rps', 'p50', 'p95', 'p99', 'Hit%', 'Purges',
-                'IdxPlan', 'IdxSeen'),
-            '-' x 98,
-        );
-
-        for my $result (@{$results}) {
-            my $index_plan = defined $result->{table_index_plan}
-                ? $result->{table_index_plan}
-                : '-';
-            my $index_seen = defined $result->{table_index_observed}
-                ? $result->{table_index_observed}
-                : '-';
-
-            push @lines, sprintf('%-22s %8.1f %7s %7s %7s %6s %7d %8s %9s',
-                $result->{table_name},
-                $result->{get}->{rps} || 0,
-                _format_milliseconds($result->{get}->{latency_us}->{p50} || 0),
-                _format_milliseconds($result->{get}->{latency_us}->{p95} || 0),
-                _format_milliseconds($result->{get}->{latency_us}->{p99} || 0),
-                _format_hit_percent($result->{get}->{cache_hit_rate}),
-                $result->{purge}->{purge_count} || 0,
-                $index_plan,
-                $index_seen,
-            );
-        }
-
-        return join("\n", @lines) . "\n";
-    }
-
     my @lines = (
-        sprintf('%-18s %8s %7s %7s %7s %6s %7s',
-            'Scenario', 'GET rps', 'p50', 'p95', 'p99', 'Hit%', 'Purges'),
-        '-' x 70,
+        sprintf('%-22s %8s %7s %7s %7s %6s %7s %8s %9s',
+            'Scenario', 'GET rps', 'p50', 'p95', 'p99', 'Hit%', 'Purges',
+            'IdxPlan', 'IdxSeen'),
+        '-' x 98,
     );
 
     for my $result (@{$results}) {
-        push @lines, sprintf('%-18s %8.1f %7s %7s %7s %6s %7d',
+        my $index_plan = defined $result->{table_index_plan}
+            ? $result->{table_index_plan}
+            : '-';
+        my $index_seen = defined $result->{table_index_observed}
+            ? $result->{table_index_observed}
+            : '-';
+
+        push @lines, sprintf('%-22s %8.1f %7s %7s %7s %6s %7d %8s %9s',
             $result->{table_name},
             $result->{get}->{rps} || 0,
             _format_milliseconds($result->{get}->{latency_us}->{p50} || 0),
@@ -193,6 +156,8 @@ sub format_table {
             _format_milliseconds($result->{get}->{latency_us}->{p99} || 0),
             _format_hit_percent($result->{get}->{cache_hit_rate}),
             $result->{purge}->{purge_count} || 0,
+            $index_plan,
+            $index_seen,
         );
     }
 
