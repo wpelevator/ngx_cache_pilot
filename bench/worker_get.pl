@@ -3,6 +3,7 @@
 use strict;
 use warnings;
 
+use File::Path qw(make_path);
 use FindBin;
 use Getopt::Long qw(GetOptions);
 use HTTP::Request;
@@ -20,6 +21,7 @@ my %options = (
     port        => 18080,
     prefix      => '/exact/',
     scenario    => 'exact_get',
+    scratch_dir => '/tmp',
 );
 
 GetOptions(
@@ -30,6 +32,7 @@ GetOptions(
     'port=i'        => \$options{port},
     'prefix=s'      => \$options{prefix},
     'scenario=s'    => \$options{scenario},
+    'scratch-dir=s' => \$options{scratch_dir},
     'vary-header=s' => \$options{vary_header},
     'vary-values=s' => \$options{vary_values},
 ) or die "invalid arguments\n";
@@ -46,8 +49,11 @@ my @vary_values = defined $options{vary_values}
     ? grep { length $_ } split /,/, $options{vary_values}
     : ();
 
+make_path($options{scratch_dir}) unless -d $options{scratch_dir};
+
 for (1 .. $options{concurrency}) {
-    my $temp_file = sprintf('/tmp/bench_get_child_%d_%d.jsonl', $$, $_);
+    my $temp_file = sprintf('%s/bench_get_child_%d_%d.jsonl',
+        $options{scratch_dir}, $$, $_);
     my $pid = fork();
 
     die "fork failed: $!\n" unless defined $pid;

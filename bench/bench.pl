@@ -5,6 +5,7 @@ use warnings;
 
 use File::Basename qw(dirname);
 use File::Path qw(make_path remove_tree);
+use File::Temp qw(tempdir);
 use FindBin;
 use Getopt::Long qw(GetOptions);
 use JSON::PP ();
@@ -40,15 +41,23 @@ my $duration = $options{quick} ? 15 : 60;
 my $scenario_ready_timeout_s = 10;
 my $perl = $^X;
 my $nginx = '/opt/nginx/sbin/nginx';
-my $nginx_error_log = '/tmp/bench_nginx_error.log';
-my $nginx_prefix = '/tmp/bench_nginx';
 my $get_worker = "$FindBin::Bin/worker_get.pl";
 my $purge_worker = "$FindBin::Bin/worker_purge.pl";
-my $redis_pid_file = '/tmp/bench_redis.pid';
 my $redis_port = 16379;
 my $redis_db = 5;
 my $stats_url = "http://127.0.0.1:$options{port}/bench_stats";
 my $ua = LWP::UserAgent->new(agent => 'ngx-cache-pilot-bench/1.0', keep_alive => 5, timeout => 5);
+my $runtime_root;
+my $runtime_conf_dir;
+my $worker_scratch_dir;
+my $nginx_prefix;
+my $nginx_error_log;
+my $nginx_pid_file;
+my $redis_runtime_dir;
+my $redis_pid_file;
+my $redis_log_file;
+my $sqlite_runtime_dir;
+my $sqlite_db_path;
 
 die "nginx binary not found at $nginx; run make nginx-build first\n"
     unless -x $nginx;
@@ -180,12 +189,12 @@ END {
 }
 
 prepare_output_dir($options{out_dir});
-log_info('Preparing benchmark runtime state');
-cleanup_runtime_state();
-
 my $timestamp = strftime('%Y%m%d-%H%M%S', localtime());
 my $run_dir = "$options{out_dir}/$timestamp";
 make_path($run_dir);
+initialize_runtime_paths($run_dir);
+log_info('Preparing benchmark runtime state');
+cleanup_runtime_state();
 log_info("Writing run artifacts to $run_dir");
 
 my @results;
@@ -346,6 +355,7 @@ sub run_scenario {
         '--duration', $duration_s,
         '--port', $options{port},
         '--out', $get_out,
+        '--scratch-dir', $worker_scratch_dir,
         (defined $scenario->{vary_header}
             ? ('--vary-header', $scenario->{vary_header})
             : ()),
@@ -428,17 +438,25 @@ sub prepare_output_dir {
     make_path($out_dir) unless -d $out_dir;
 }
 
+sub initialize_runtime_paths {
+    my ($run_dir) = @_;
+
+    $runtime_root = tempdir('ngx-cache-pilot-bench-XXXXXX', TMPDIR => 1, CLEANUP => 0);
+    $runtime_conf_dir = "$runtime_root/conf";
+    $worker_scratch_dir = "$runtime_root/workers";
+    $sqlite_runtime_dir = "$runtime_root/sqlite";
+    $sqlite_db_path = "$sqlite_runtime_dir/bench_tags.db";
+    $nginx_prefix = "$runtime_root/nginx";
+    $nginx_error_log = "$nginx_prefix/logs/error.log";
+    $nginx_pid_file = "$nginx_prefix/nginx.pid";
+    $redis_runtime_dir = "$runtime_root/redis";
+    $redis_pid_file = "$redis_runtime_dir/redis.pid";
+    $redis_log_file = "$redis_runtime_dir/redis.log";
+}
+
 sub cleanup_runtime_state {
-    for my $path (
-        '/tmp/bench_cache_exact',
-        '/tmp/bench_cache_wild',
-        '/tmp/bench_cache_tag_sqlite',
-        '/tmp/bench_cache_tag_redis',
-        '/tmp/bench_proxy_temp',
-        '/tmp/bench_client_body_temp',
-        $nginx_prefix,
-    ) {
-        remove_tree($path, { error => \my $error });
+    if (defined $runtime_root && -e $runtime_root) {
+        remove_tree($runtime_root, { error => \my $error });
         if ($error && @{$error}) {
             for my $entry (@{$error}) {
                 my ($failed_path, $message) = %{$entry};
@@ -447,29 +465,37 @@ sub cleanup_runtime_state {
         }
     }
 
-    for my $file (
-        '/tmp/bench_tags.db',
-        '/tmp/bench_tags.db-shm',
-        '/tmp/bench_tags.db-wal',
-        '/tmp/bench_nginx.pid',
-        $nginx_error_log,
-        '/tmp/bench_redis.log',
-        $redis_pid_file,
-    ) {
-        unlink $file if -e $file;
-    }
-
     $nginx_error_log_offset = 0;
 
-    unlink $_ for glob('/tmp/bench_nginx_*.conf');
-
     make_path(
-        '/tmp/bench_proxy_temp',
-        '/tmp/bench_client_body_temp',
+        $runtime_conf_dir,
+        $worker_scratch_dir,
+        $sqlite_runtime_dir,
+        "$runtime_root/proxy_temp",
+        "$runtime_root/client_body_temp",
+        "$runtime_root/cache_exact",
+        "$runtime_root/cache_wild",
+        "$runtime_root/cache_fanout",
+        "$runtime_root/cache_tag_sqlite",
+        "$runtime_root/cache_tag_redis",
         $nginx_prefix,
         "$nginx_prefix/logs",
+        $redis_runtime_dir,
     );
+
+    prepare_sqlite_runtime();
     ensure_nginx_prefix();
+}
+
+sub prepare_sqlite_runtime {
+    chmod 0777, $sqlite_runtime_dir
+        or die "chmod($sqlite_runtime_dir): $!\n";
+
+    open my $fh, '>', $sqlite_db_path or die "open($sqlite_db_path): $!";
+    close $fh or die "close($sqlite_db_path): $!";
+
+    chmod 0666, $sqlite_db_path
+        or die "chmod($sqlite_db_path): $!\n";
 }
 
 sub render_runtime_config {
@@ -477,7 +503,7 @@ sub render_runtime_config {
 
     my $backend = $scenario->{backend};
     my $template_name = sanitize_config_name($scenario->{config_template_name});
-    my $target = "/tmp/bench_nginx_${template_name}_${backend}.conf";
+    my $target = "$runtime_conf_dir/bench_nginx_${template_name}_${backend}.conf";
 
     render_config($scenario->{config_template_path}, $target, $options{port});
 
@@ -493,6 +519,24 @@ sub render_config {
     close $in or die "close($source): $!";
 
     $config =~ s/listen\s+18080;/listen $port;/;
+
+    my %path_map = (
+        '/tmp/bench_nginx_error.log' => $nginx_error_log,
+        '/tmp/bench_nginx.pid' => $nginx_pid_file,
+        '/tmp/bench_client_body_temp' => "$runtime_root/client_body_temp",
+        '/tmp/bench_proxy_temp' => "$runtime_root/proxy_temp",
+        '/tmp/bench_cache_exact' => "$runtime_root/cache_exact",
+        '/tmp/bench_cache_wild' => "$runtime_root/cache_wild",
+        '/tmp/bench_cache_fanout' => "$runtime_root/cache_fanout",
+        '/tmp/bench_cache_tag_sqlite' => "$runtime_root/cache_tag_sqlite",
+        '/tmp/bench_cache_tag_redis' => "$runtime_root/cache_tag_redis",
+        '/tmp/bench_tags.db' => $sqlite_db_path,
+    );
+
+    for my $from (sort { length($b) <=> length($a) } keys %path_map) {
+        my $to = $path_map{$from};
+        $config =~ s/\Q$from\E/$to/g;
+    }
 
     open my $out, '>', $target or die "open($target): $!";
     print {$out} $config or die "write($target): $!";
@@ -510,22 +554,18 @@ sub stop_nginx {
     my ($conf) = @_;
 
     return unless defined $conf;
-    return unless -e '/tmp/bench_nginx.pid';
+    return unless defined $nginx_pid_file && -e $nginx_pid_file;
 
     ensure_nginx_prefix();
     system($nginx, '-p', $nginx_prefix, '-c', $conf, '-s', 'stop');
     sleep(0.2);
-    unlink '/tmp/bench_nginx.pid' if -e '/tmp/bench_nginx.pid';
+    unlink $nginx_pid_file if -e $nginx_pid_file;
 }
 
 sub ensure_nginx_prefix {
-    make_path($nginx_prefix, "$nginx_prefix/logs");
+    return unless defined $nginx_prefix;
 
-    my $prefix_error_log = "$nginx_prefix/logs/error.log";
-    if (!-e $prefix_error_log) {
-        open my $prefix_fh, '>', $prefix_error_log or die "open($prefix_error_log): $!";
-        close $prefix_fh or die "close($prefix_error_log): $!";
-    }
+    make_path($nginx_prefix, "$nginx_prefix/logs");
 
     return if -e $nginx_error_log;
 
@@ -985,6 +1025,8 @@ sub print_assertion_result {
 sub start_redis {
     stop_redis() if -e $redis_pid_file;
 
+    make_path($redis_runtime_dir);
+
     run_system(
         'redis-server',
         '--port', $redis_port,
@@ -992,7 +1034,7 @@ sub start_redis {
         '--save', '',
         '--loglevel', 'warning',
         '--pidfile', $redis_pid_file,
-        '--logfile', '/tmp/bench_redis.log',
+        '--logfile', $redis_log_file,
     );
 
     for (1 .. 50) {
