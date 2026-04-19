@@ -127,6 +127,8 @@ ngx_http_cache_pilot_key_index_ready(ngx_http_request_t *r,
                                      ngx_http_cache_pilot_main_conf_t **pmcf,
                                      ngx_http_cache_index_zone_t **tag_zone,
                                      ngx_http_cache_index_store_t **reader);
+static ngx_http_cache_pilot_metrics_shctx_t *
+ngx_http_cache_pilot_metrics_ctx(ngx_http_cache_pilot_main_conf_t *pmcf);
 #if (NGX_CACHE_PILOT_THREADS)
 static ngx_thread_pool_t *ngx_http_cache_pilot_thread_pool(
     ngx_http_request_t *r);
@@ -351,10 +353,10 @@ ngx_http_cache_pilot_dispatch_special(ngx_http_request_t *r,
                 tag_soft = ngx_http_cache_pilot_request_mode(r,
                            cplcf->conf->soft);
                 if (tag_soft) {
-                    NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics,
+                    NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_m),
                                                 purges_tag_soft);
                 } else {
-                    NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics,
+                    NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_m),
                                                 purges_tag_hard);
                 }
             }
@@ -1366,9 +1368,11 @@ ngx_http_cache_pilot_partial_completion(ngx_event_t *ev) {
             ngx_http_cache_pilot_main_conf_t *pmcf_m;
             pmcf_m = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
             if (ctx->soft) {
-                NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics, purges_wildcard_soft);
+                NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_m),
+                                            purges_wildcard_soft);
             } else {
-                NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics, purges_wildcard_hard);
+                NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_m),
+                                            purges_wildcard_hard);
             }
         }
         r->write_event_handler = ngx_http_request_empty_handler;
@@ -1849,13 +1853,29 @@ ngx_http_cache_pilot_key_index_ready(ngx_http_request_t *r,
 
     *reader = ngx_http_cache_index_store_reader(*pmcf, r->connection->log);
     if (*reader == NULL) {
-        return NGX_DECLINED;
+        if (ngx_http_cache_index_is_owner()) {
+            *reader = ngx_http_cache_index_store_writer();
+        }
+        if (*reader == NULL) {
+            return NGX_DECLINED;
+        }
     }
 
-    return ngx_http_cache_index_zone_bootstrap_complete_sync(*pmcf, cache,
-            r->connection->log)
-           ? NGX_OK : NGX_DECLINED;
+    return NGX_OK;
 #endif
+}
+
+static ngx_http_cache_pilot_metrics_shctx_t *
+ngx_http_cache_pilot_metrics_ctx(ngx_http_cache_pilot_main_conf_t *pmcf) {
+    if (pmcf == NULL) {
+        return NULL;
+    }
+
+    if (pmcf->metrics == NULL && pmcf->metrics_zone != NULL) {
+        pmcf->metrics = pmcf->metrics_zone->data;
+    }
+
+    return pmcf->metrics;
 }
 # if (nginx_version >= 1007009)
 
@@ -2166,7 +2186,8 @@ ngx_http_cache_pilot_exact_purge(ngx_http_request_t *r) {
         ngx_http_cache_index_store_t      *reader;
 
         pmcf_m = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
-        NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics, purges_exact_hard);
+        NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_m),
+                        purges_exact_hard);
         fanout_used = 0;
 
         /* Key-index fan-out: purge Vary variants sharing the same cache key. */
@@ -2205,7 +2226,7 @@ ngx_http_cache_pilot_exact_purge(ngx_http_request_t *r) {
         }
 
         if (fanout_used) {
-            NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics,
+            NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_m),
                                         key_index_exact_fanout);
         }
     }
@@ -2308,9 +2329,10 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
 
     {
         pmcf_m = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
-        NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics, purges_exact_soft);
+        NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_m),
+                                    purges_exact_soft);
         if (fanout_used) {
-            NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics,
+            NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_m),
                                         key_index_exact_fanout);
         }
     }
@@ -2429,9 +2451,11 @@ ngx_http_cache_pilot_all(ngx_http_request_t *r, ngx_http_file_cache_t *cache) {
         pmcf_m = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
         soft_m = cplcf->conf->soft;
         if (soft_m) {
-            NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics, purges_all_soft);
+            NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_m),
+                                        purges_all_soft);
         } else {
-            NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics, purges_all_hard);
+            NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_m),
+                                        purges_all_hard);
         }
     }
 
@@ -2553,16 +2577,18 @@ ngx_http_cache_pilot_partial(ngx_http_request_t *r, ngx_http_file_cache_t *cache
                        "cache_tag wildcard index hit prefix:\"%V\"",
                        &key_prefix);
 
-        NGX_CACHE_PILOT_METRICS_INC(pmcf_idx->metrics,
+        NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_idx),
                                     key_index_wildcard_hits);
 
         {
             ngx_http_cache_pilot_main_conf_t *pmcf_m;
             pmcf_m = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
             if (soft) {
-                NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics, purges_wildcard_soft);
+                NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_m),
+                                            purges_wildcard_soft);
             } else {
-                NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics, purges_wildcard_hard);
+                NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_m),
+                                            purges_wildcard_hard);
             }
         }
 
@@ -2657,9 +2683,11 @@ ngx_http_cache_pilot_partial(ngx_http_request_t *r, ngx_http_file_cache_t *cache
         ngx_http_cache_pilot_main_conf_t *pmcf_m;
         pmcf_m = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
         if (soft) {
-            NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics, purges_wildcard_soft);
+            NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_m),
+                                        purges_wildcard_soft);
         } else {
-            NGX_CACHE_PILOT_METRICS_INC(pmcf_m->metrics, purges_wildcard_hard);
+            NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_m),
+                                        purges_wildcard_hard);
         }
     }
 
