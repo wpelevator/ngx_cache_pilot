@@ -81,7 +81,7 @@ ngx_http_cache_pilot_record_purge(ngx_http_request_t *r,
                                   ngx_uint_t count);
 static void
 ngx_http_cache_pilot_record_purge_request(ngx_http_request_t *r,
-    ngx_http_cache_pilot_purge_stats_e purge_type, ngx_flag_t soft);
+        ngx_http_cache_pilot_purge_stats_e purge_type, ngx_flag_t soft);
 static void
 ngx_http_cache_pilot_record_key_index_exact_fanout(ngx_http_request_t *r);
 static void

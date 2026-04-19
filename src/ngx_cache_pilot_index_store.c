@@ -210,7 +210,7 @@ ngx_int_t
 ngx_http_cache_index_store_upsert_file_meta(ngx_http_cache_index_store_t *store,
         ngx_str_t *zone_name, ngx_str_t *path, ngx_str_t *cache_key_text,
         time_t mtime, off_t size, ngx_array_t *tags, ngx_log_t *log) {
-        return ngx_http_cache_index_store_shm_upsert_file_meta(store, zone_name, path,
+    return ngx_http_cache_index_store_shm_upsert_file_meta(store, zone_name, path,
             cache_key_text, mtime, size, tags, log);
 }
 
@@ -219,7 +219,7 @@ ngx_http_cache_index_store_collect_paths_by_exact_key(
     ngx_http_cache_index_store_t *store, ngx_pool_t *pool,
     ngx_str_t *zone_name, ngx_str_t *key_text,
     ngx_array_t **paths, ngx_log_t *log) {
-        return ngx_http_cache_index_store_shm_collect_paths_by_exact_key(store, pool,
+    return ngx_http_cache_index_store_shm_collect_paths_by_exact_key(store, pool,
             zone_name, key_text, paths, log);
 }
 
@@ -228,7 +228,7 @@ ngx_http_cache_index_store_collect_paths_by_key_prefix(
     ngx_http_cache_index_store_t *store, ngx_pool_t *pool,
     ngx_str_t *zone_name, ngx_str_t *prefix,
     ngx_array_t **paths, ngx_log_t *log) {
-        return ngx_http_cache_index_store_shm_collect_paths_by_key_prefix(store, pool,
+    return ngx_http_cache_index_store_shm_collect_paths_by_key_prefix(store, pool,
             zone_name, prefix, paths, log);
 }
 
@@ -243,7 +243,7 @@ ngx_int_t
 ngx_http_cache_index_store_collect_paths_by_tags(ngx_http_cache_index_store_t *store,
         ngx_pool_t *pool, ngx_str_t *zone_name, ngx_array_t *tags,
         ngx_array_t **paths, ngx_log_t *log) {
-        return ngx_http_cache_index_store_shm_collect_paths_by_tags(store, pool,
+    return ngx_http_cache_index_store_shm_collect_paths_by_tags(store, pool,
             zone_name, tags, paths, log);
 }
 
@@ -252,7 +252,7 @@ ngx_http_cache_index_store_get_zone_state(ngx_http_cache_index_store_t *store,
         ngx_str_t *zone_name,
         ngx_http_cache_index_zone_state_t *state,
         ngx_log_t *log) {
-        return ngx_http_cache_index_store_shm_get_zone_state(store, zone_name, state,
+    return ngx_http_cache_index_store_shm_get_zone_state(store, zone_name, state,
             log);
 }
 
@@ -261,7 +261,7 @@ ngx_http_cache_index_store_set_zone_state(ngx_http_cache_index_store_t *store,
         ngx_str_t *zone_name,
         ngx_http_cache_index_zone_state_t *state,
         ngx_log_t *log) {
-        return ngx_http_cache_index_store_shm_set_zone_state(store, zone_name, state,
+    return ngx_http_cache_index_store_shm_set_zone_state(store, zone_name, state,
             log);
 }
 
