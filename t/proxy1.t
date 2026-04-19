@@ -30,16 +30,8 @@ our $config = <<'_EOC_';
     }
 _EOC_
 
-Test::Nginx::CachePurge::set_default_http_config(
-    http_config => $http_config,
-);
-
-Test::Nginx::CachePurge::add_default_block_config(
-    config => $config,
-    timeout => 10,
-);
-
 worker_connections(128);
+timeout(10);
 no_shuffle();
 run_tests();
 
@@ -48,12 +40,15 @@ no_diff();
 __DATA__
 
 === TEST 1: prepare
+--- http_config eval: $::http_config
+--- config eval: $::config
 --- request
 GET /proxy/passwd
 --- error_code: 200
 --- response_headers
 Content-Type: text/plain
 --- response_body_like: root
+--- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 4: < 0.8.3 or < 0.7.62

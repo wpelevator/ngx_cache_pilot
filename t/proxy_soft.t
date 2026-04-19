@@ -8,10 +8,17 @@ repeat_each(1);
 
 plan tests => repeat_each() * (blocks() * 4 + 22 * 1);
 
-our $http_config = Test::Nginx::CachePurge::cache_http_config(
-    include_purge_method_map => 1,
-    include_purge_never_map => 1,
-);
+our $http_config = <<'_EOC_';
+    proxy_cache_path  /tmp/ngx_cache_pilot_cache keys_zone=test_cache:10m;
+    proxy_temp_path   /tmp/ngx_cache_pilot_temp 1 2;
+    map $request_method $purge_method {
+        PURGE   1;
+        default 0;
+    }
+    map $request_method $purge_never {
+        default 0;
+    }
+_EOC_
 
 our $config = <<'_EOC_';
     location /proxy {
@@ -46,16 +53,8 @@ our $config_purge_all = <<'_EOC_';
     }
 _EOC_
 
-Test::Nginx::CachePurge::set_default_http_config(
-    http_config => $http_config,
-);
-
-Test::Nginx::CachePurge::add_default_block_config(
-    config => $config,
-    timeout => 10,
-);
-
 worker_connections(128);
+timeout(10);
 no_shuffle();
 run_tests();
 
@@ -64,6 +63,8 @@ no_diff();
 __DATA__
 
 === TEST 1: prepare cache entry
+--- http_config eval: $::http_config
+--- config eval: $::config
 --- request
 GET /proxy/passwd?t=soft
 --- error_code: 200
@@ -71,6 +72,7 @@ GET /proxy/passwd?t=soft
 Content-Type: text/plain
 X-Cache-Status: MISS
 --- response_body_like: root
+--- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -428,6 +430,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 23: prepare first purge_all target
+--- http_config eval: $::http_config
 --- config eval: $::config_purge_all
 --- request
 GET /proxy/passwd?t=all
@@ -436,6 +439,7 @@ GET /proxy/passwd?t=all
 Content-Type: text/plain
 X-Cache-Status: MISS
 --- response_body_like: root
+--- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -443,6 +447,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 24: prepare second purge_all target
+--- http_config eval: $::http_config
 --- config eval: $::config_purge_all
 --- request
 GET /proxy/shadow?t=all
@@ -458,6 +463,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 25: purge_all ignores override header and keeps configured soft behavior
+--- http_config eval: $::http_config
 --- config eval: $::config_purge_all
 --- request
 PURGE /proxy/any
@@ -474,6 +480,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 26: purge_all target is served as expired
+--- http_config eval: $::http_config
 --- config eval: $::config_purge_all
 --- request
 GET /proxy/passwd?t=all
@@ -489,6 +496,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 27: second purge_all target is served as expired
+--- http_config eval: $::http_config
 --- config eval: $::config_purge_all
 --- request
 GET /proxy/shadow?t=all

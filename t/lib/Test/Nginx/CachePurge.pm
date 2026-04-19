@@ -3,6 +3,23 @@ package Test::Nginx::CachePurge;
 use strict;
 use warnings;
 
+BEGIN {
+    if (defined $ENV{TEST_NGINX_BINARY} && $ENV{TEST_NGINX_BINARY} ne '') {
+        my $binary = $ENV{TEST_NGINX_BINARY};
+
+        if ($binary =~ m{^(.+)/[^/]+$}) {
+            my $dir = $1;
+            my $path = defined $ENV{PATH} ? $ENV{PATH} : '';
+
+            if ($path eq '') {
+                $ENV{PATH} = $dir;
+            } elsif (index(":$path:", ":$dir:") == -1) {
+                $ENV{PATH} = "$dir:$path";
+            }
+        }
+    }
+}
+
 use Test::Nginx::Socket -Base;
 
 sub cache_http_config {
@@ -73,13 +90,18 @@ sub set_default_http_config {
     my (%args) = @_;
     my $default_http_config = $args{http_config};
 
-    Test::Nginx::Socket::set_http_config_filter(sub {
-        my $http_config = shift;
+    add_block_preprocessor(sub {
+        my $block = shift;
+        my $http_config;
 
+        return if !defined $default_http_config || $default_http_config eq '';
+
+        $http_config = $block->http_config;
         $http_config = '' if !defined $http_config;
-        return $http_config if !defined $default_http_config || $default_http_config eq '';
 
-        return $default_http_config . $http_config;
+        return if index($http_config, $default_http_config) == 0;
+
+        $block->set_value('http_config', $default_http_config . $http_config);
     });
 }
 

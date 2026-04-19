@@ -105,7 +105,7 @@ GET /_stats?format=json
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
---- response_body_like: "zones"
+--- response_body_like: "zones".*"last_updated_at"
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
@@ -209,7 +209,7 @@ GET /_stats?format=prometheus
 --- error_code: 200
 --- response_headers
 Content-Type: text/plain; version=0.0.4; charset=utf-8
---- response_body_like: zone="stats_test"
+--- response_body_like: nginx_cache_pilot_index_last_updated_at_seconds\{zone="stats_test"\}
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
