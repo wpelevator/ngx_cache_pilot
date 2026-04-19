@@ -1051,7 +1051,8 @@ ngx_http_cache_index_init_runtime(ngx_cycle_t *cycle,
                     (ngx_rbtree_insert_pt) ngx_http_cache_index_watch_insert);
 
     ngx_http_cache_index_watch_runtime.owner = (
-                ngx_process == NGX_PROCESS_WORKER && ngx_worker == 0);
+                ngx_process == NGX_PROCESS_SINGLE
+                || (ngx_process == NGX_PROCESS_WORKER && ngx_worker == 0));
     ngx_http_cache_index_watch_runtime.cycle = cycle;
     ngx_http_cache_index_queue_ctx = pmcf->queue_zone != NULL
                                      ? pmcf->queue_zone->data : NULL;
