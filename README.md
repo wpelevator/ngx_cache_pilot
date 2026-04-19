@@ -280,13 +280,7 @@ For dedicated purge locations, configure the cache zone with `*_cache`, the purg
 
 Set the response type returned after a purge.
 
-When `json` is selected, successful purges may also include `cache_pilot.purge_path`
-to describe the request path that completed the purge, for example
-`filesystem-fallback`, `key-prefix-index`, `reused-persisted-index`,
-`bootstrapped-on-demand`, or `exact-key-fanout`. Here, `reused-persisted-index`
-means the request reused shared-memory index state that was already built for
-the current nginx lifetime; it does not imply on-disk persistence. Text responses keep the
-existing plain body format.
+When `json` is selected, successful purges may also include `cache_pilot.purge_path` to describe the request path that completed the purge, for example `filesystem-fallback`, `key-prefix-index`, `reused-persisted-index`, `bootstrapped-on-demand`, or `exact-key-fanout`. Here, `reused-persisted-index` means the request reused shared-memory index state that was already built for the current nginx lifetime; it does not imply on-disk persistence. JSON responses also include `cache_pilot.purged.by_key` and `cache_pilot.purged.by_tag`, which report how many cache entries that purge request removed or expired through key-based and tag-based matching. Text responses keep existing plain body format.
 
 #### `cache_pilot_purge_mode_header`
 

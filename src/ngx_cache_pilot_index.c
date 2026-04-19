@@ -350,6 +350,8 @@ ngx_http_cache_index_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache,
     rc = purged > 0 ? NGX_OK : NGX_DECLINED;
 
     if (rc == NGX_OK) {
+        ngx_http_cache_pilot_set_response_stats(r, 0, purged);
+
         if (bootstrapped_on_demand) {
             ngx_http_cache_pilot_set_response_path(r,
                                                    NGX_HTTP_CACHE_PILOT_PURGE_PATH_BOOTSTRAPPED_ON_DEMAND);
