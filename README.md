@@ -329,7 +329,7 @@ When `cache_pilot_index_store` is also configured, watched cache files also upda
 
 Set `cache_pilot_index off;` to opt out on locations where indexing should stay disabled.
 
-For hard tag purges, matching cache files are removed immediately and the corresponding SQLite index deletes are handed off asynchronously to the owner worker. A successful purge response means all required index deletes were accepted for processing; if that handoff cannot be accepted, the request fails with `500`.
+For hard tag purges, matching cache files are removed immediately and the corresponding index cleanup is handed off asynchronously to the owner worker. If that deferred cleanup cannot be queued, the module logs the failure and continues, so the purge request can still succeed even though some index cleanup was not accepted for processing.
 
 #### `cache_pilot_tag_queue_size`
 
@@ -535,7 +535,7 @@ key purge relies on filesystem walking.
 
 The index is built and kept current through two mechanisms that work together:
 
-**inotify watcher (Linux only).** When `cache_pilot_index on` is set, one worker process (the owner) opens an `inotify` watch on the cache directory tree. When other workers create or replace a cache file they enqueue a write operation into a shared-memory ring buffer. The owner worker drains this queue on a 10 ms timer and writes the tag associations to the index backend. Delete events are handled the same way.
+**inotify watcher (Linux only).** When `cache_pilot_index on` is set, one worker process (the owner) opens an `inotify` watch on the cache directory tree. When other workers create or replace a cache file they enqueue a write operation into a shared-memory ring buffer. The owner worker drains this queue on a periodic timer and writes the tag associations to the index backend. Delete events are handled the same way.
 
 **Cold-start bootstrap.** If a tag `PURGE` request arrives before a zone has been indexed — for example after a restart — the module scans the entire cache directory tree, reads the cached response headers from every file it finds, extracts tags, and writes all associations to the index before completing the purge. The result is recorded so subsequent requests skip the scan.
 
