@@ -778,9 +778,15 @@ ngx_http_cache_index_bootstrap_thread(void *data, ngx_log_t *log) {
 
         if (ngx_http_cache_index_store_get_zone_state(writer, &zone[i].zone_name,
                 &state, log) != NGX_OK) {
+            /* Store unavailable (e.g. Redis not yet reachable).  Mark
+             * partial failure but continue with remaining zones so that
+             * inotify watches are registered for the zones that do succeed. */
+            ngx_log_error(NGX_LOG_WARN, log, 0,
+                          "cache_tag: cannot read zone state for \"%V\" "
+                          "in bootstrap thread, skipping",
+                          &zone[i].zone_name);
             ctx->rc = NGX_ERROR;
-            ngx_http_cache_index_store_close(writer);
-            return;
+            continue;
         }
 
         if (state.bootstrap_complete) {
@@ -791,26 +797,32 @@ ngx_http_cache_index_bootstrap_thread(void *data, ngx_log_t *log) {
                     &zone[i].cache->path->name, ctx->cycle,
                     NGX_HTTP_CACHE_TAG_INDEX_DIRECT, NULL,
                     state.last_bootstrap_at) == NGX_ERROR) {
+                ngx_log_error(NGX_LOG_WARN, log, 0,
+                              "cache_tag: watch setup failed for zone \"%V\" "
+                              "in bootstrap thread, continuing",
+                              &zone[i].zone_name);
                 ctx->rc = NGX_ERROR;
-                ngx_http_cache_index_store_close(writer);
-                return;
             }
 
             state.last_bootstrap_at = ngx_time();
             if (ngx_http_cache_index_store_set_zone_state(writer,
                     &zone[i].zone_name, &state, log) != NGX_OK) {
+                ngx_log_error(NGX_LOG_WARN, log, 0,
+                              "cache_tag: cannot update zone state for \"%V\" "
+                              "in bootstrap thread",
+                              &zone[i].zone_name);
                 ctx->rc = NGX_ERROR;
-                ngx_http_cache_index_store_close(writer);
-                return;
             }
             continue;
         }
 
         if (ngx_http_cache_index_bootstrap_zone(writer, &zone[i],
                                                 ctx->cycle) != NGX_OK) {
+            ngx_log_error(NGX_LOG_WARN, log, 0,
+                          "cache_tag: bootstrap failed for zone \"%V\" "
+                          "in bootstrap thread, deferring until first request",
+                          &zone[i].zone_name);
             ctx->rc = NGX_ERROR;
-            ngx_http_cache_index_store_close(writer);
-            return;
         }
     }
 
@@ -963,7 +975,14 @@ ngx_http_cache_index_init_runtime(ngx_cycle_t *cycle,
 
         if (ngx_http_cache_index_store_get_zone_state(writer, &zone[i].zone_name,
                 &state, cycle->log) != NGX_OK) {
-            return NGX_ERROR;
+            /* Store unavailable (e.g. Redis not yet reachable at startup).
+             * Skip this zone — inotify is still armed below and the zone
+             * will be bootstrapped on the first incoming purge request. */
+            ngx_log_error(NGX_LOG_WARN, cycle->log, 0,
+                          "cache_tag: cannot read zone state for \"%V\" "
+                          "at startup, deferring bootstrap to first request",
+                          &zone[i].zone_name);
+            continue;
         }
 
         if (state.bootstrap_complete) {
@@ -974,13 +993,18 @@ ngx_http_cache_index_init_runtime(ngx_cycle_t *cycle,
                     &zone[i].cache->path->name, cycle,
                     NGX_HTTP_CACHE_TAG_INDEX_DIRECT, NULL,
                     state.last_bootstrap_at) == NGX_ERROR) {
-                return NGX_ERROR;
+                ngx_log_error(NGX_LOG_WARN, cycle->log, 0,
+                              "cache_tag: watch setup failed for zone \"%V\", "
+                              "continuing without directory pre-scan",
+                              &zone[i].zone_name);
             }
 
             state.last_bootstrap_at = ngx_time();
             if (ngx_http_cache_index_store_set_zone_state(writer, &zone[i].zone_name,
                     &state, cycle->log) != NGX_OK) {
-                return NGX_ERROR;
+                ngx_log_error(NGX_LOG_WARN, cycle->log, 0,
+                              "cache_tag: cannot update zone state for \"%V\"",
+                              &zone[i].zone_name);
             }
 
             ngx_http_cache_index_zone_state_cache_set(zone[i].cache, &state);
@@ -989,7 +1013,10 @@ ngx_http_cache_index_init_runtime(ngx_cycle_t *cycle,
 
         if (ngx_http_cache_index_bootstrap_zone(writer, &zone[i], cycle)
                 != NGX_OK) {
-            return NGX_ERROR;
+            ngx_log_error(NGX_LOG_WARN, cycle->log, 0,
+                          "cache_tag: bootstrap failed for zone \"%V\", "
+                          "deferring until first purge request",
+                          &zone[i].zone_name);
         }
     }
 
@@ -1370,7 +1397,15 @@ ngx_http_cache_index_zone_state_cache_sync(ngx_cycle_t *cycle,
         state.last_bootstrap_at = 0;
         if (ngx_http_cache_index_store_get_zone_state(reader, &zone[i].zone_name,
                 &state, cycle->log) != NGX_OK) {
-            return NGX_ERROR;
+            /* Store unavailable at startup (e.g. Redis not yet reachable).
+             * Default to not-bootstrapped so the zone is re-bootstrapped on
+             * the first purge request.  Do not fail the worker — it will
+             * reconnect and pick up new entries via inotify. */
+            ngx_log_error(NGX_LOG_WARN, cycle->log, 0,
+                          "cache_tag: cannot read initial zone state for \"%V\", "
+                          "assuming not bootstrapped", &zone[i].zone_name);
+            state.bootstrap_complete = 0;
+            state.last_bootstrap_at = 0;
         }
 
         ngx_http_cache_index_zone_state_cache_set(zone[i].cache, &state);

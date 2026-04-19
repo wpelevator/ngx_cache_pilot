@@ -75,9 +75,17 @@ ngx_http_cache_index_store_sqlite_open(ngx_http_cache_pilot_main_conf_t *pmcf,
         store = ngx_http_cache_index_store_sqlite_open_one(&pmcf->sqlite_path,
                 SQLITE_OPEN_READONLY,
                 1, log, 0);
-        if (store != NULL && ngx_http_cache_index_store_sqlite_prepare(store, log)
-                == NGX_OK) {
-            return store;
+        if (store != NULL) {
+            /* Keep a startup busy timeout active for prepare so that a
+             * concurrent WAL checkpoint or in-progress schema commit from
+             * another worker does not cause an immediate SQLITE_BUSY
+             * failure before the tables are visible. */
+            sqlite3_busy_timeout(store->u.sqlite.db, 5000);
+            if (ngx_http_cache_index_store_sqlite_prepare(store, log) == NGX_OK) {
+                sqlite3_busy_timeout(store->u.sqlite.db, 0);
+                return store;
+            }
+            sqlite3_busy_timeout(store->u.sqlite.db, 0);
         }
 
         ngx_http_cache_index_store_close(store);
@@ -91,11 +99,22 @@ ngx_http_cache_index_store_sqlite_open(ngx_http_cache_pilot_main_conf_t *pmcf,
         return NULL;
     }
 
-    if (ngx_http_cache_index_store_sqlite_ensure_schema(store, log) != NGX_OK
-            || ngx_http_cache_index_store_sqlite_prepare(store, log) != NGX_OK) {
+    if (ngx_http_cache_index_store_sqlite_ensure_schema(store, log) != NGX_OK) {
         ngx_http_cache_index_store_close(store);
         return NULL;
     }
+
+    /* ensure_schema resets busy_timeout to 0 when it returns.  Set it again
+     * here so that prepare — which compiles SQL against the schema — can
+     * also retry on a transient SQLITE_BUSY from a sibling worker's
+     * concurrent WAL recovery or checkpointing. */
+    sqlite3_busy_timeout(store->u.sqlite.db, 5000);
+    if (ngx_http_cache_index_store_sqlite_prepare(store, log) != NGX_OK) {
+        sqlite3_busy_timeout(store->u.sqlite.db, 0);
+        ngx_http_cache_index_store_close(store);
+        return NULL;
+    }
+    sqlite3_busy_timeout(store->u.sqlite.db, 0);
 
     return store;
 }

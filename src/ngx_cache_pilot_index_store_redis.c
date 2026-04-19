@@ -162,10 +162,12 @@ ngx_http_cache_index_store_redis_open(ngx_http_cache_pilot_main_conf_t *pmcf,
     store->u.redis.conn = NULL;
     store->u.redis.fd = (ngx_socket_t) NGX_INVALID_FILE;
 
-    if (ngx_http_cache_index_store_redis_connect(store, log) != NGX_OK) {
-        ngx_http_cache_index_store_close(store);
-        return NULL;
-    }
+    /* Defer the initial connection to the first store operation.  Connecting
+     * here (synchronously during init_process) causes all workers to fail
+     * startup when Redis is not immediately reachable.  ensure_connected()
+     * is called at the start of every operation and will establish the
+     * connection on first use; the existing retry-on-reconnect logic in each
+     * operation wrapper handles subsequent transient failures. */
 
     return store;
 }
