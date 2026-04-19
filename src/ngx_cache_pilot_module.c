@@ -2733,7 +2733,6 @@ ngx_http_cache_pilot_exact_purge(ngx_http_request_t *r) {
         ngx_http_cache_index_zone_t       *tag_zone;
         ngx_http_cache_index_store_t      *reader;
 
-        pmcf_m = NULL;
         ngx_http_cache_pilot_record_purge_request(
             r, NGX_HTTP_CACHE_PILOT_PURGE_STATS_EXACT, 0);
         fanout_used = 0;

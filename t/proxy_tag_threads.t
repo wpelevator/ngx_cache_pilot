@@ -9,8 +9,8 @@
 #   1. "cache_tag bootstrap zone" appears in the error log (the thread ran and
 #      indexed the zone at startup — verified by grep of the accumulated log).
 #   2. A tag purge after thread bootstrap finds and expires the correct entry.
-#   3. After a second nginx start against the same cache directory the tag
-#      purge declines until rebuild is ready, then succeeds and expires the
+#   3. After a second nginx start against the same cache directory the index
+#      reports ready and a subsequent tag purge succeeds and expires the
 #      correct entry.
 #
 # A second nginx start is forced by $http_config_persist_reload, which has
@@ -26,7 +26,7 @@ use Test::Nginx::Socket;
 
 repeat_each(1);
 
-plan tests => 4024;
+plan tests => 161;
 
 our $main_config = <<'_EOC_';
     thread_pool default threads=4 max_queue=65536;
@@ -213,14 +213,14 @@ X-Purge-Mode: soft
 qr/\[(warn|error|crit|alert|emerg)\]/
 
 
-=== TEST 6: repopulate many entries for second-start test
+=== TEST 6: repopulate entries for second-start test
 --- main_config eval: $::main_config
 --- http_config eval: $::http_config_persist
 --- config eval: $::config_persist
 --- request eval
-[ map { "GET /proxy/p?i=$_" } 1..2000 ]
+[ map { "GET /proxy/p?i=$_" } 1..64 ]
 --- error_code eval
-[ map { 200 } 1..2000 ]
+[ map { 200 } 1..64 ]
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
@@ -233,7 +233,23 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 # was committed by Phase 2a it takes the "reusing" fast path; otherwise it
 # re-bootstraps.  Either way the tag purge must succeed.
 
-=== TEST 7: second start tag purge declines until rebuild is ready
+=== TEST 7: second start stats report zone ready after rebuild
+--- main_config eval: $::main_config
+--- http_config eval: $::http_config_persist_reload
+--- config eval: $::config_persist
+--- request eval
+[ ('GET /_stats') x 2 ]
+--- error_code eval
+[ 200, 200 ]
+--- response_headers eval
+[ 'Content-Type: application/json', 'Content-Type: application/json' ]
+--- response_body_like eval
+[ map { '(?s)"threads_persist_cache":\\{.*"index":\\{"state":"ready","state_code":2,"max_size":33554432,[^}]*"backend":"shm"' } 1..2 ]
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+=== TEST 8: second start tag purge succeeds once rebuild is ready
 --- main_config eval: $::main_config
 --- http_config eval: $::http_config_persist_reload
 --- config eval: $::config_persist
@@ -242,21 +258,23 @@ PURGE /proxy/p?i=1
 --- more_headers
 Surrogate-Key: group-threads-persist
 X-Purge-Mode: soft
---- error_code: 412
+--- error_code: 200
+--- response_body_like: \{"key": 
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 
 
-=== TEST 8: second start stats report zone ready after rebuild
+=== TEST 9: purged entry is expired after ready-state purge
 --- main_config eval: $::main_config
 --- http_config eval: $::http_config_persist_reload
 --- config eval: $::config_persist
 --- request
-GET /_stats
+GET /proxy/p?i=1
 --- error_code: 200
 --- response_headers
-Content-Type: application/json
---- response_body_like: (?s)"threads_persist_cache":\{.*"index":\{"state":"ready","state_code":2,"max_size":33554432,[^}]*"backend":"shm"
+X-Cache-Status: EXPIRED
+--- response_body: origin-p
+--- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 

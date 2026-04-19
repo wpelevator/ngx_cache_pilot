@@ -210,7 +210,6 @@ ngx_http_cache_index_store_t *ngx_http_cache_index_store_open_writer(
     ngx_http_cache_pilot_main_conf_t *pmcf, ngx_log_t *log);
 ngx_http_cache_index_store_t *ngx_http_cache_index_store_open_reader(
     ngx_http_cache_pilot_main_conf_t *pmcf, ngx_log_t *log);
-void ngx_http_cache_index_store_close(ngx_http_cache_index_store_t *store);
 ngx_int_t ngx_http_cache_index_store_upsert_file_meta(
     ngx_http_cache_index_store_t *store, ngx_str_t *zone_name, ngx_str_t *path,
     ngx_str_t *cache_key_text, time_t mtime, off_t size, ngx_array_t *tags,
