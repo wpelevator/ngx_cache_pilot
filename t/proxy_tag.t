@@ -5,7 +5,7 @@ use Test::Nginx::Socket;
 
 repeat_each(1);
 
-plan tests => repeat_each() * 163;
+plan tests => repeat_each() * 164;
 
 our $http_config = <<'_EOC_';
     proxy_cache_path  /tmp/ngx_cache_pilot_cache keys_zone=test_cache:10m;
@@ -246,6 +246,9 @@ our $config_soft = <<'_EOC_';
         return 200         "origin-c";
     }
 _EOC_
+
+our $config_soft_json = $config_soft;
+$config_soft_json =~ s/cache_pilot_purge_mode_header X-Purge-Mode;/cache_pilot_purge_mode_header X-Purge-Mode;\n        cache_pilot_purge_response_type json;/g;
 
 our $config_hard = <<'_EOC_';
     location = /proxy/a {
@@ -636,20 +639,23 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 === TEST 23: second tag purge reuses persisted index after restart
 --- http_config eval: $::http_config_restart
---- config eval: $::config_soft
+--- config eval: $::config_soft_json
 --- request
 PURGE /proxy/a?t=restart
 --- more_headers
 Surrogate-Key: group-one
 X-Purge-Mode: soft
 --- error_code: 200
---- response_body_like: Successful purge
+--- response_headers
+Content-Type: application/json
+--- response_body_like: ^\{\"key\": \"\/proxy\/a\?t=restart\", \"cache_pilot\": \{\"purge_path\": \"reused-persisted-index\"\}\}$
 --- grep_error_log eval
 qr/cache_tag request reusing persisted index for zone "test_cache"/
 --- grep_error_log_out
 cache_tag request reusing persisted index for zone "test_cache"
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
+
 
 
 
