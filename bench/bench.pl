@@ -62,19 +62,11 @@ die "nginx binary not found at $nginx; run make nginx-build first\n"
 
 my @all_scenarios = (
     {
-        key        => 'exact',
-        name       => 'exact_purge',
-        table_name => 'exact_purge',
+        key        => 'exact-baseline',
+        name       => 'exact_baseline_purge',
+        table_name => 'exact_baseline_purge',
         prefix     => '/exact/',
         mode       => 'exact',
-        index_mode => 'baseline',
-    },
-    {
-        key        => 'wild',
-        name       => 'wildcard_purge',
-        table_name => 'wildcard_purge',
-        prefix     => '/wild/',
-        mode       => 'wildcard',
         index_mode => 'baseline',
     },
     {
@@ -110,7 +102,7 @@ my @all_scenarios = (
         purge_header_value => 'a',
     },
     {
-        key        => 'wild-scan',
+        key        => 'wildcard-scan',
         name       => 'wildcard_scan_purge',
         table_name => 'wildcard_scan_purge',
         prefix     => '/wild-scan/',
@@ -118,7 +110,7 @@ my @all_scenarios = (
         index_mode => 'baseline',
     },
     {
-        key        => 'wild-index',
+        key        => 'wildcard-index',
         name       => 'wildcard_indexed_purge',
         table_name => 'wildcard_indexed_purge',
         prefix     => '/wild-index/',
@@ -439,7 +431,6 @@ sub cleanup_runtime_state {
         "$runtime_root/proxy_temp",
         "$runtime_root/client_body_temp",
         "$runtime_root/cache_exact",
-        "$runtime_root/cache_wild",
         "$runtime_root/cache_exact_scan",
         "$runtime_root/cache_exact_index",
         "$runtime_root/cache_wild_scan",
@@ -477,7 +468,6 @@ sub render_config {
         '/tmp/bench_client_body_temp' => "$runtime_root/client_body_temp",
         '/tmp/bench_proxy_temp' => "$runtime_root/proxy_temp",
         '/tmp/bench_cache_exact' => "$runtime_root/cache_exact",
-        '/tmp/bench_cache_wild' => "$runtime_root/cache_wild",
         '/tmp/bench_cache_exact_scan' => "$runtime_root/cache_exact_scan",
         '/tmp/bench_cache_exact_index' => "$runtime_root/cache_exact_index",
         '/tmp/bench_cache_wild_scan' => "$runtime_root/cache_wild_scan",

@@ -587,13 +587,12 @@ The repository includes a container-only benchmark harness under `bench/` for me
 
 By default it runs all benchmark scenarios in a single run (and one summary table):
 
-- exact-key soft purge
-- wildcard soft purge
+- exact-key soft purge baseline (`exact-baseline`)
 - cache-tag soft purge with shm index
 - exact soft purge with index disabled (`exact-scan`)
 - exact soft purge with index enabled and `Vary` siblings (`exact-index`)
-- wildcard soft purge with index disabled (filesystem walk, `wild-scan`)
-- wildcard soft purge with index enabled (key-prefix assist when ready, `wild-index`)
+- wildcard soft purge with index disabled (filesystem walk, `wildcard-scan`)
+- wildcard soft purge with index enabled (key-prefix assist when ready, `wildcard-index`)
 
 Each scenario warms 1000 cached objects, starts 50 keep-alive GET workers, then runs a sequential PURGE worker in parallel while collecting:
 
@@ -616,7 +615,7 @@ Results are written under `bench/results/<timestamp>/` with one JSON file per sc
 
 The benchmark suite uses a single nginx runtime per run. It renders `bench/nginx.conf`, starts nginx once, and executes all selected scenarios against that runtime.
 
-`bench/bench.pl` can also fail the run on threshold regressions with `--assert-file <path>`. The default assertion file is JSON with optional `defaults` and per-scenario rules under `scenarios`, keyed by scenario ids (for example `exact`, `wild`, `tag-shm`, `exact-scan`, `exact-index`, `wild-scan`, and `wild-index`). Metrics use dot-paths into the summary object, for example `get.rps`, `get.cache_hit_rate`, `get.latency_us.p95`, and `purge.rps`. Each rule supports `min` and/or `max`. See `bench/assertions.example.json` for the current performance thresholds.
+`bench/bench.pl` can also fail the run on threshold regressions with `--assert-file <path>`. The default assertion file is JSON with optional `defaults` and per-scenario rules under `scenarios`, keyed by scenario ids (for example `exact-baseline`, `tag-shm`, `exact-scan`, `exact-index`, `wildcard-scan`, and `wildcard-index`). Metrics use dot-paths into the summary object, for example `get.rps`, `get.cache_hit_rate`, `get.latency_us.p95`, and `purge.rps`. Each rule supports `min` and/or `max`. See `bench/assertions.example.json` for the current performance thresholds.
 
 ### Docker Validation Config
 
