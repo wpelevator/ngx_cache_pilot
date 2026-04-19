@@ -177,7 +177,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 
-=== TEST 8: redis stats report ready zone and wildcard key-index usage
+=== TEST 8: redis stats report wildcard key-index usage
 --- http_config eval: $::http_config
 --- config eval: $::config
 --- request
@@ -185,7 +185,22 @@ GET /_stats
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
---- response_body_like: (?s)"key_cache_redis_test":\{.*"index":\{"state":"ready","state_code":2,"backend":"redis".*"key_index":\{[^}]*"wildcard_hits":[1-9]
+--- response_body_like: (?s)"key_index":\{[^}]*"wildcard_hits":[1-9]
+--- timeout: 10
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 9: redis stats report ready zone
+--- http_config eval: $::http_config
+--- config eval: $::config
+--- request
+GET /_stats
+--- error_code: 200
+--- response_headers
+Content-Type: application/json
+--- response_body_like: (?s)"key_cache_redis_test":\{.*"index":\{"state":"ready","state_code":2,"backend":"redis"
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
