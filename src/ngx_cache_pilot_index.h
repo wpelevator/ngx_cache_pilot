@@ -281,6 +281,10 @@ ngx_http_cache_index_zone_t *ngx_http_cache_index_lookup_zone(
     ngx_http_file_cache_t *cache);
 ngx_flag_t ngx_http_cache_index_zone_bootstrap_complete(
     ngx_http_file_cache_t *cache);
+ngx_flag_t ngx_http_cache_index_zone_bootstrap_complete_sync(
+    ngx_http_cache_pilot_main_conf_t *pmcf,
+    ngx_http_file_cache_t *cache,
+    ngx_log_t *log);
 ngx_int_t ngx_http_cache_index_bootstrap_zone(
     ngx_http_cache_index_store_t *store, ngx_http_cache_index_zone_t *zone,
     ngx_cycle_t *cycle);

@@ -1852,7 +1852,8 @@ ngx_http_cache_pilot_key_index_ready(ngx_http_request_t *r,
         return NGX_DECLINED;
     }
 
-    return ngx_http_cache_index_zone_bootstrap_complete(cache)
+    return ngx_http_cache_index_zone_bootstrap_complete_sync(*pmcf, cache,
+            r->connection->log)
            ? NGX_OK : NGX_DECLINED;
 #endif
 }
@@ -2489,6 +2490,7 @@ ngx_http_cache_pilot_partial(ngx_http_request_t *r, ngx_http_file_cache_t *cache
     ngx_http_cache_pilot_partial_ctx_t  *ctx;
     ngx_str_t                           *keys;
     ngx_str_t                            key;
+    ngx_str_t                            key_prefix;
     ngx_int_t                            soft;
     ngx_tree_ctx_t                       tree;
     ngx_http_cache_pilot_main_conf_t    *pmcf_idx;
@@ -2497,7 +2499,10 @@ ngx_http_cache_pilot_partial(ngx_http_request_t *r, ngx_http_file_cache_t *cache
     ngx_array_t                         *idx_paths;
     ngx_int_t                            purge_rc;
     ngx_int_t                            used_index;
+    ngx_uint_t                           i;
     ngx_uint_t                           k;
+    ngx_uint_t                           prefix_len;
+    u_char                              *prefix_p;
 #if (NGX_CACHE_PILOT_THREADS)
     ngx_thread_pool_t                   *tp;
     ngx_thread_task_t                   *task;
@@ -2519,6 +2524,38 @@ ngx_http_cache_pilot_partial(ngx_http_request_t *r, ngx_http_file_cache_t *cache
         return NGX_ERROR;
     }
     key.len--;
+
+    prefix_len = 0;
+    for (i = 0; i < r->cache->keys.nelts; i++) {
+        prefix_len += keys[i].len;
+    }
+
+    if (keys[0].len > 0 && keys[0].data[keys[0].len - 1] == '*') {
+        prefix_len--;
+    }
+
+    if (prefix_len == 0) {
+        return NGX_ERROR;
+    }
+
+    key_prefix.data = ngx_pnalloc(r->pool, prefix_len);
+    if (key_prefix.data == NULL) {
+        return NGX_ERROR;
+    }
+
+    prefix_p = key_prefix.data;
+    for (i = 0; i < r->cache->keys.nelts; i++) {
+        size_t copy_len;
+
+        copy_len = keys[i].len;
+        if (i == 0 && copy_len > 0 && keys[i].data[copy_len - 1] == '*') {
+            copy_len--;
+        }
+
+        prefix_p = ngx_cpymem(prefix_p, keys[i].data, copy_len);
+    }
+
+    key_prefix.len = prefix_len;
 
     cplcf = ngx_http_get_module_loc_conf(r, ngx_http_cache_pilot_module);
     soft = ngx_http_cache_pilot_request_mode(r, cplcf->conf->soft);
@@ -2593,7 +2630,7 @@ ngx_http_cache_pilot_partial(ngx_http_request_t *r, ngx_http_file_cache_t *cache
             &tag_zone, &reader) == NGX_OK) {
         idx_paths = NULL;
         if (ngx_http_cache_index_store_collect_paths_by_key_prefix(reader,
-                r->pool, &tag_zone->zone_name, &key,
+                r->pool, &tag_zone->zone_name, &key_prefix,
                 &idx_paths, r->connection->log) == NGX_OK
                 && idx_paths != NULL && idx_paths->nelts > 0) {
             ngx_str_t *ip = idx_paths->elts;

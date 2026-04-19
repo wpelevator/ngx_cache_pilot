@@ -115,7 +115,8 @@ ngx_http_cache_pilot_snapshot_zone(ngx_http_cache_pilot_stat_zone_t *sz,
         snap->has_index     = 1;
         snap->index_backend = (ngx_uint_t) pmcf->backend;
 
-        if (ngx_http_cache_index_zone_bootstrap_complete(cache)) {
+        if (ngx_http_cache_index_zone_bootstrap_complete_sync(pmcf, cache,
+                ngx_cycle->log)) {
             snap->index_state = NGX_CACHE_PILOT_INDEX_STATE_READY;
         }
 
@@ -416,10 +417,10 @@ ngx_http_cache_pilot_write_prometheus(u_char *p, u_char *last,
                          &s->name, s->entries_updating);
     }
 
-    /* Tag index metrics */
+    /* Cache index metrics */
     p = ngx_slprintf(p, last,
                      "# HELP nginx_cache_pilot_index_state"
-                     " Per-zone tag index state: 0=disabled, 1=configured, 2=ready\n"
+                     " Per-zone cache index state: 0=disabled, 1=configured, 2=ready\n"
                      "# TYPE nginx_cache_pilot_index_state gauge\n");
     for (i = 0; i < nzones; i++) {
         s = &snaps[i];

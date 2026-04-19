@@ -178,6 +178,46 @@ ngx_http_cache_index_zone_bootstrap_complete(ngx_http_file_cache_t *cache) {
     return index->bootstrap_complete;
 }
 
+ngx_flag_t
+ngx_http_cache_index_zone_bootstrap_complete_sync(
+    ngx_http_cache_pilot_main_conf_t *pmcf,
+    ngx_http_file_cache_t *cache,
+    ngx_log_t *log) {
+    ngx_http_cache_index_zone_t        *zone;
+    ngx_http_cache_index_store_t       *reader;
+    ngx_http_cache_index_zone_state_t   state;
+
+    if (ngx_http_cache_index_zone_bootstrap_complete(cache)) {
+        return 1;
+    }
+
+    if (pmcf == NULL || cache == NULL) {
+        return 0;
+    }
+
+    zone = ngx_http_cache_index_lookup_zone(cache);
+    if (zone == NULL) {
+        return 0;
+    }
+
+    reader = ngx_http_cache_index_store_reader(pmcf, log);
+    if (reader == NULL) {
+        return 0;
+    }
+
+    state.bootstrap_complete = 0;
+    state.last_bootstrap_at = 0;
+
+    if (ngx_http_cache_index_store_get_zone_state(reader, &zone->zone_name,
+            &state, log) != NGX_OK) {
+        return 0;
+    }
+
+    ngx_http_cache_index_zone_state_cache_set(cache, &state);
+
+    return state.bootstrap_complete ? 1 : 0;
+}
+
 ngx_int_t
 ngx_http_cache_index_bootstrap_zone(ngx_http_cache_index_store_t *store,
                                     ngx_http_cache_index_zone_t *zone,
