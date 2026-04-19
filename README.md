@@ -677,6 +677,8 @@ Each scenario warms 1000 cached objects, starts 50 keep-alive GET workers, then 
 - `cache_pilot_stats` snapshots before and after the run
 - index diagnostics (`index_plan` and `index_report`) to show whether index use was expected, whether zones were ready, and whether index-assisted counters actually moved
 
+For wildcard key-index scenarios, the harness also runs a short post-warm preflight before the measured run begins. It warms one extra probe key and requires that a probe wildcard PURGE increments the wildcard index-assist counter before the benchmark starts, so a zone cannot report `ready` while fresh warm-up metadata is still missing.
+
 Run the quick suite after building nginx:
 
 ```bash

@@ -151,6 +151,7 @@ ngx_http_cache_index_store_process_file(ngx_http_cache_index_store_t *store,
     ngx_str_t     cache_key_text;
     time_t        mtime;
     off_t         size;
+    ngx_int_t     parse_rc;
     ngx_int_t     rc;
 
     pool = ngx_create_pool(4096, log);
@@ -163,13 +164,23 @@ ngx_http_cache_index_store_process_file(ngx_http_cache_index_store_t *store,
     if (headers == NULL || headers->nelts == 0) {
         /* No configured tag headers: still parse for KEY: so the key index
          * is populated even when tag indexing is not in use. */
-        if (ngx_http_cache_index_parse_file(pool, path, NULL, &tags,
-                                            &cache_key_text, &mtime, &size,
-                                            log) != NGX_OK) {
+        parse_rc = ngx_http_cache_index_parse_file(pool, path, NULL, &tags,
+                               &cache_key_text, &mtime, &size,
+                               log);
+        if (parse_rc != NGX_OK) {
+            ngx_log_debug3(NGX_LOG_DEBUG_HTTP, log, 0,
+                   "cache_tag process_file skipped zone:\"%V\" path:\"%V\" rc:%i",
+                   zone_name, path, parse_rc);
             ngx_destroy_pool(pool);
             return ngx_http_cache_index_store_delete_file(store, zone_name, path,
                     log);
         }
+
+        ngx_log_debug5(NGX_LOG_DEBUG_HTTP, log, 0,
+                   "cache_tag process_file zone:\"%V\" path:\"%V\" key_len:%uz tags:%ui headers:%ui",
+                   zone_name, path, cache_key_text.len,
+                   tags != NULL ? tags->nelts : 0,
+                   headers != NULL ? headers->nelts : 0);
 
         rc = ngx_http_cache_index_store_upsert_file_meta(store, zone_name, path,
                 &cache_key_text, mtime, size, NULL, log);
@@ -177,12 +188,22 @@ ngx_http_cache_index_store_process_file(ngx_http_cache_index_store_t *store,
         return rc;
     }
 
-    if (ngx_http_cache_index_parse_file(pool, path, headers, &tags,
-                                        &cache_key_text, &mtime, &size,
-                                        log) != NGX_OK) {
+        parse_rc = ngx_http_cache_index_parse_file(pool, path, headers, &tags,
+                               &cache_key_text, &mtime, &size,
+                               log);
+        if (parse_rc != NGX_OK) {
+        ngx_log_debug3(NGX_LOG_DEBUG_HTTP, log, 0,
+                   "cache_tag process_file skipped zone:\"%V\" path:\"%V\" rc:%i",
+                   zone_name, path, parse_rc);
         ngx_destroy_pool(pool);
         return ngx_http_cache_index_store_delete_file(store, zone_name, path, log);
     }
+
+        ngx_log_debug5(NGX_LOG_DEBUG_HTTP, log, 0,
+               "cache_tag process_file zone:\"%V\" path:\"%V\" key_len:%uz tags:%ui headers:%ui",
+               zone_name, path, cache_key_text.len,
+               tags != NULL ? tags->nelts : 0,
+               headers != NULL ? headers->nelts : 0);
 
     rc = ngx_http_cache_index_store_upsert_file_meta(store, zone_name, path,
             &cache_key_text, mtime, size, tags, log);
