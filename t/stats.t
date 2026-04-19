@@ -5,8 +5,8 @@ use Test::Nginx::Socket;
 
 repeat_each(1);
 
-# This file currently emits 56 assertions in total.
-plan tests => repeat_each() * 56;
+# This file currently emits 66 assertions in total.
+plan tests => repeat_each() * 66;
 
 our $http_config = <<'_EOC_';
     proxy_cache_path  /tmp/ngx_cache_pilot_stats_cache  keys_zone=stats_test:10m;
@@ -240,6 +240,48 @@ GET /_stats_filtered
 --- response_headers
 Content-Type: application/json
 --- response_body_unlike: "stats_test2"
+--- timeout: 10
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 15: entries are reported as valid immediately after caching (JSON)
+--- http_config eval: $::http_config
+--- config eval: $::config
+--- request eval
+[
+    'GET /proxy/passwd?t=valid_check',
+    'GET /_stats',
+]
+--- error_code eval
+[200, 200]
+--- response_body_like eval
+[
+    'root',
+    '"valid":1',
+]
+--- timeout: 10
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+
+
+
+=== TEST 16: valid entries are reported in Prometheus format
+--- http_config eval: $::http_config
+--- config eval: $::config
+--- request eval
+[
+    'GET /proxy/passwd?t=prom_valid_check',
+    'GET /_stats?format=prometheus',
+]
+--- error_code eval
+[200, 200]
+--- response_body_like eval
+[
+    'root',
+    'nginx_cache_pilot_zone_entries\{zone="stats_test",state="valid"\} [1-9]',
+]
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
