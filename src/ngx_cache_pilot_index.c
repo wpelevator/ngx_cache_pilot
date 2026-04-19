@@ -384,6 +384,8 @@ ngx_http_cache_index_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache,
     ngx_uint_t                        i;
     ngx_int_t                         rc, purged;
     ngx_int_t                         soft;
+    ngx_flag_t                        bootstrapped_on_demand;
+    ngx_flag_t                        reused_persisted_index;
 #if (NGX_LINUX)
     ngx_http_cache_index_store_t       *reader, *writer;
     ngx_flag_t                         close_reader;
@@ -417,6 +419,8 @@ ngx_http_cache_index_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache,
 #else
     close_reader = 0;
     writer = NULL;
+    bootstrapped_on_demand = 0;
+    reused_persisted_index = 0;
 
     reader = ngx_http_cache_index_store_reader(pmcf, r->connection->log);
     if (reader == NULL) {
@@ -444,6 +448,7 @@ ngx_http_cache_index_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache,
     }
 
     if (state.bootstrap_complete) {
+        reused_persisted_index = 1;
         ngx_log_error(NGX_LOG_NOTICE, r->connection->log, 0,
                       "cache_tag request reusing persisted index for zone \"%V\"",
                       &zone->zone_name);
@@ -479,6 +484,8 @@ ngx_http_cache_index_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache,
             return ngx_http_cache_index_purge_finalize(NGX_ERROR, reader,
                     close_reader);
         }
+
+        bootstrapped_on_demand = 1;
 
         if (ngx_http_cache_index_store_get_zone_state(reader, &zone->zone_name,
                 &state, r->connection->log) != NGX_OK) {
@@ -521,6 +528,16 @@ ngx_http_cache_index_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache,
     }
 
     rc = purged > 0 ? NGX_OK : NGX_DECLINED;
+
+    if (rc == NGX_OK) {
+        if (bootstrapped_on_demand) {
+            ngx_http_cache_pilot_set_response_path(r,
+                NGX_HTTP_CACHE_PILOT_PURGE_PATH_BOOTSTRAPPED_ON_DEMAND);
+        } else if (reused_persisted_index) {
+            ngx_http_cache_pilot_set_response_path(r,
+                NGX_HTTP_CACHE_PILOT_PURGE_PATH_REUSED_PERSISTED_INDEX);
+        }
+    }
 
     return ngx_http_cache_index_purge_finalize(rc, reader, close_reader);
 #endif

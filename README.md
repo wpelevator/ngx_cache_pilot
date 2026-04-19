@@ -279,6 +279,12 @@ For dedicated purge locations, configure the cache zone with `*_cache`, the purg
 
 Set the response type returned after a purge.
 
+When `json` is selected, successful purges may also include `cache_pilot.purge_path`
+to describe the request path that completed the purge, for example
+`filesystem-fallback`, `key-prefix-index`, `reused-persisted-index`,
+`bootstrapped-on-demand`, or `exact-key-fanout`. HTML, XML, and text responses
+keep their existing body formats.
+
 #### `cache_pilot_purge_mode_header`
 
 - **syntax**: `cache_pilot_purge_mode_header <header>`

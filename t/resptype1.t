@@ -10,6 +10,10 @@ plan tests => repeat_each() * (blocks() * 4 + 3 * 1);
 our $http_config = <<'_EOC_';
     proxy_cache_path  /tmp/ngx_cache_pilot_cache keys_zone=test_cache:10m;
     proxy_temp_path   /tmp/ngx_cache_pilot_temp 1 2;
+    map $request_method $purge_method {
+        PURGE   1;
+        default 0;
+    }
 _EOC_
 
 our $config = <<'_EOC_';
@@ -49,6 +53,16 @@ our $config = <<'_EOC_';
         proxy_cache_key             $1$is_args$args;
         proxy_cache_purge           1;
         cache_pilot_purge_response_type   text;
+    }
+
+    location /proxy_wild_json {
+        proxy_pass         $scheme://127.0.0.1:$server_port/etc/passwd;
+        proxy_cache        test_cache;
+        proxy_cache_key    $uri$is_args$args;
+        proxy_cache_valid  3m;
+        add_header         X-Cache-Status $upstream_cache_status;
+        proxy_cache_purge  $purge_method;
+        cache_pilot_purge_response_type json;
     }
 
 
@@ -145,6 +159,54 @@ X-Cache-Status: MISS
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
+
+
+
+=== TEST 6: prepare first wildcard JSON purge target
+--- http_config eval: $::http_config
+--- config eval: $::config
+--- request
+GET /proxy_wild_json/passwd
+--- error_code: 200
+--- response_headers
+Content-Type: text/plain
+--- response_body_like: root
+--- timeout: 10
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+--- skip_nginx2: 4: < 0.8.3 or < 0.7.62
+
+
+
+=== TEST 7: prepare second wildcard JSON purge target
+--- http_config eval: $::http_config
+--- config eval: $::config
+--- request
+GET /proxy_wild_json/passwd2
+--- error_code: 200
+--- response_headers
+Content-Type: text/plain
+--- response_body_like: root
+--- timeout: 10
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+--- skip_nginx2: 4: < 0.8.3 or < 0.7.62
+
+
+
+=== TEST 8: wildcard JSON purge reports purge path
+--- http_config eval: $::http_config
+--- config eval: $::config
+--- request
+PURGE /proxy_wild_json/pass*
+--- error_code: 200
+--- response_headers
+Content-Type: application/json
+--- response_body_like: \{\"key\": \"\/proxy_wild_json\/pass\*\", \"cache_pilot\": \{\"purge_path\": \"filesystem-fallback\"\}\}
+--- timeout: 10
+--- no_error_log eval
+qr/\[(warn|error|crit|alert|emerg)\]/
+--- skip_nginx2: 4: < 0.8.3 or < 0.7.62
 
 
 
