@@ -661,12 +661,16 @@ make bench-quick
 
 The repository includes a container-only benchmark harness under `bench/` for measuring purge performance under concurrent GET load. Feature validation for key-index readiness, exact-key fanout, and wildcard key-prefix assist now lives in the regular `Test::Nginx` suite (`t/proxy_key_index.t` and `t/proxy_key_index_redis.t`), so the benchmark stays focused on steady-state throughput and latency.
 
-It runs four scenarios against the built module with no extra container dependencies:
+By default it runs all benchmark scenarios in a single run (and one summary table):
 
 - exact-key soft purge
 - wildcard soft purge
 - cache-tag soft purge with SQLite index
 - cache-tag soft purge with Redis index
+- exact soft purge with index disabled (`exact-scan`)
+- exact soft purge with index enabled and `Vary` siblings (`exact-index`)
+- wildcard soft purge with index disabled (filesystem walk, `wild-scan`)
+- wildcard soft purge with index enabled (key-prefix assist when ready, `wild-index`)
 
 Each scenario warms 1000 cached objects, starts 50 keep-alive GET workers, then runs a sequential PURGE worker in parallel while collecting:
 
@@ -689,7 +693,7 @@ Results are written under `bench/results/<timestamp>/` with one JSON file per sc
 
 The benchmark suite uses `bench/nginx.conf` for the baseline SQLite-backed scenarios and `bench/nginx_redis.conf` for the Redis-backed scenario. If more benchmark layouts are added later, drop another `*.conf` template into `bench/`, assign scenarios to it in `bench/bench.pl`, and the runner will restart nginx when either the template or backend changes. You can also override the template for a whole run with `--config-template <name-or-path>`.
 
-`bench/bench.pl` can also fail the run on threshold regressions with `--assert-file <path>`. The default assertion file is JSON with optional `defaults` and per-scenario rules under `scenarios`, keyed by the scenario ids `exact`, `wild`, `tag-sqlite`, and `tag-redis`. Metrics use dot-paths into the summary object, for example `get.rps`, `get.cache_hit_rate`, `get.latency_us.p95`, and `purge.rps`. Each rule supports `min` and/or `max`. See `bench/assertions.example.json` for the current performance thresholds.
+`bench/bench.pl` can also fail the run on threshold regressions with `--assert-file <path>`. The default assertion file is JSON with optional `defaults` and per-scenario rules under `scenarios`, keyed by scenario ids (for example `exact`, `wild`, `tag-sqlite`, `tag-redis`, `exact-scan`, `exact-index`, `wild-scan`, and `wild-index`). Metrics use dot-paths into the summary object, for example `get.rps`, `get.cache_hit_rate`, `get.latency_us.p95`, and `purge.rps`. Each rule supports `min` and/or `max`. See `bench/assertions.example.json` for the current performance thresholds.
 
 ### Docker Validation Config
 
