@@ -1579,12 +1579,28 @@ ngx_http_cache_index_zone_state_cache_sync(ngx_cycle_t *cycle,
         return NGX_OK;
     }
 
+    zone = pmcf->zones->elts;
+
     reader = ngx_http_cache_index_store_reader(pmcf, cycle->log);
     if (reader == NULL) {
-        return NGX_ERROR;
+        ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
+                      "cache_tag: index reader not ready at startup, "
+                      "assuming zones are not bootstrapped yet");
+
+        state.bootstrap_complete = 0;
+        state.last_bootstrap_at = 0;
+
+        for (i = 0; i < pmcf->zones->nelts; i++) {
+            if (zone[i].cache == NULL) {
+                continue;
+            }
+
+            ngx_http_cache_index_zone_state_cache_set(zone[i].cache, &state);
+        }
+
+        return NGX_OK;
     }
 
-    zone = pmcf->zones->elts;
     for (i = 0; i < pmcf->zones->nelts; i++) {
         if (zone[i].cache == NULL) {
             continue;

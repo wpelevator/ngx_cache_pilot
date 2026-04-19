@@ -400,7 +400,9 @@ ngx_http_cache_index_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache,
 #else
     reader = ngx_http_cache_index_store_reader(pmcf, r->connection->log);
     if (reader == NULL) {
-        return NGX_ERROR;
+        ngx_log_error(NGX_LOG_NOTICE, r->connection->log, 0,
+                      "cache_tag purge skipped: index reader not ready yet");
+        return NGX_DECLINED;
     }
 
     if (ngx_http_cache_index_flush_pending((ngx_cycle_t *) ngx_cycle) != NGX_OK) {
@@ -426,20 +428,20 @@ ngx_http_cache_index_purge(ngx_http_request_t *r, ngx_http_file_cache_t *cache,
     }
 
     if (paths->nelts == 0 && !state.bootstrap_complete && cache->path != NULL) {
-        writer = ngx_http_cache_index_is_owner()
-                 ? ngx_http_cache_index_store_writer()
-                 : ngx_http_cache_index_store_open_writer(pmcf,
-                         r->connection->log);
+        if (!ngx_http_cache_index_is_owner()) {
+            ngx_log_error(NGX_LOG_NOTICE, r->connection->log, 0,
+                          "cache_tag purge deferred: zone \"%V\" index is "
+                          "not bootstrapped yet", &zone->zone_name);
+            return NGX_DECLINED;
+        }
+
+        writer = ngx_http_cache_index_store_writer();
         if (writer == NULL) {
             return NGX_ERROR;
         }
 
         rc = ngx_http_cache_index_bootstrap_zone(writer, zone,
                 (ngx_cycle_t *) ngx_cycle);
-        if (!ngx_http_cache_index_is_owner()) {
-            ngx_http_cache_index_store_close(writer);
-        }
-
         if (rc != NGX_OK) {
             return NGX_ERROR;
         }

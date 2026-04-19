@@ -302,7 +302,7 @@ If configured:
 
 Enable cache-tag indexing backed by SQLite or Redis. This feature is currently Linux-only. SQLite requires a writable database path. Redis currently supports a single instance over `host:port` or `unix:/path`, with optional `db=<n>` and `password=<secret>`, but no TLS, Sentinel, or Cluster support.
 
-The SQLite database is opened and initialized by the runtime worker that owns index writes. `nginx -t` validates the configured path but does not create or migrate the database file.
+The SQLite database is opened and initialized by the runtime worker that owns index writes. `nginx -t` validates the configured path but does not create or migrate the database file. Other workers open the database read-only; if the schema is not ready yet, index-assisted purge paths remain unavailable until the owner worker finishes initialization.
 
 This backend also stores cache-key metadata used by key-based purge acceleration:
 
@@ -714,7 +714,7 @@ To target one or more isolated scenarios directly, keep using `--scenarios` as t
 perl ./bench/bench.pl --quick --port 18080 --out-dir ./bench/results --scenarios exact-indexed,wild-indexed
 ```
 
-These runs use `bench/nginx_indexed.conf` for `exact-indexed` and `wild-indexed`, and `bench/nginx_fanout.conf` for `exact-fanout`. When any selected scenario enables index tracking, `summary.txt` adds `IdxPlan` and `IdxSeen` columns and the per-scenario JSON artifacts include the matching `index_plan` and `index_report` data. The default suite keeps the simpler summary table.
+These runs use `bench/nginx_indexed.conf` for `exact-indexed` and `wild-indexed`, and `bench/nginx_fanout.conf` for `exact-fanout`. `summary.txt` always includes `IdxPlan` and `IdxSeen`, and the per-scenario JSON artifacts always include the matching `index_plan` and `index_report` data. For the default suite, the tag scenarios now report their index readiness state as part of the stable baseline output.
 
 ### Docker Validation Config
 

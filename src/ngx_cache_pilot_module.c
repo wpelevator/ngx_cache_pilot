@@ -1995,25 +1995,6 @@ ngx_http_cache_pilot_init_module(ngx_cycle_t *cycle) {
                       dir);
         return NGX_ERROR;
     }
-
-    /* Pre-initialize the SQLite schema in the master process before any
-     * worker is forked.  All workers will then see a committed schema when
-     * they open their own connections, which eliminates the startup race
-     * where one worker creates the DB file (sqlite3_open_v2 with
-     * READWRITE|CREATE) before committing the schema and sibling workers
-     * simultaneously try to prepare statements against empty tables. */
-    {
-        ngx_http_cache_index_store_t  *s;
-
-        s = ngx_http_cache_index_store_open_writer(pmcf, cycle->log);
-        if (s == NULL) {
-            ngx_log_error(NGX_LOG_EMERG, cycle->log, 0,
-                          "cache_pilot_index_store sqlite: "
-                          "failed to initialize database schema");
-            return NGX_ERROR;
-        }
-        ngx_http_cache_index_store_close(s);
-    }
 #endif
 
     return NGX_OK;
