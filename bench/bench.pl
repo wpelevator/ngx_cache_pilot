@@ -28,7 +28,6 @@ my %options = (
 GetOptions(
     'assert-file=s' => \$options{assert_file},
     'count=i'       => \$options{count},
-    'config-template=s' => \$options{config_template},
     'concurrency=i' => \$options{concurrency},
     'out-dir=s'     => \$options{out_dir},
     'port=i'        => \$options{port},
@@ -47,124 +46,78 @@ my $perl = $^X;
 my $nginx = '/opt/nginx/sbin/nginx';
 my $get_worker = "$FindBin::Bin/worker_get.pl";
 my $purge_worker = "$FindBin::Bin/worker_purge.pl";
-my $redis_port = 16379;
-my $redis_db = 5;
 my $stats_url = "http://127.0.0.1:$options{port}/bench_stats";
 my $ua = LWP::UserAgent->new(agent => 'ngx-cache-pilot-bench/1.0', keep_alive => 5, timeout => 5);
+my $runtime_template = "$FindBin::Bin/nginx.conf";
 my $runtime_root;
 my $runtime_conf_dir;
 my $worker_scratch_dir;
 my $nginx_prefix;
 my $nginx_error_log;
 my $nginx_pid_file;
-my $redis_runtime_dir;
-my $redis_pid_file;
-my $redis_log_file;
-my $sqlite_runtime_dir;
-my $sqlite_db_path;
+my $runtime_template_name = 'nginx';
 
 die "nginx binary not found at $nginx; run make nginx-build first\n"
     unless -x $nginx;
 
-my %config_templates = discover_config_templates($FindBin::Bin);
-my $override_template = defined $options{config_template}
-    ? resolve_config_template(\%config_templates, $options{config_template})
-    : undef;
-
 my @all_scenarios = (
     {
-        key        => 'exact',
-        name       => 'exact_purge',
-        table_name => 'exact_purge',
-        config_template => 'nginx',
+        key        => 'exact-baseline',
+        name       => 'exact_baseline_purge',
+        table_name => 'exact_baseline_purge',
         prefix     => '/exact/',
         mode       => 'exact',
-        backend    => 'sqlite',
-        index_tracking_mode => 'disabled',
+        index_mode => 'baseline',
     },
     {
-        key        => 'wild',
-        name       => 'wildcard_purge',
-        table_name => 'wildcard_purge',
-        config_template => 'nginx',
-        prefix     => '/wild/',
-        mode       => 'wildcard',
-        backend    => 'sqlite',
-        index_tracking_mode => 'disabled',
-    },
-    {
-        key        => 'tag-sqlite',
-        name       => 'tag_sqlite_purge',
-        table_name => 'tag_sqlite_purge',
-        config_template => 'nginx',
+        key        => 'tag-shm',
+        name       => 'tag_shm_purge',
+        table_name => 'tag_shm_purge',
         prefix     => '/tag/',
         mode       => 'tag',
         tag_base   => 'bench-tag',
-        backend    => 'sqlite',
-        index_target_zone => 'bench_tag_sqlite',
-        require_index_zone_ready => 0,
-        index_tracking_mode => 'readiness_only',
-    },
-    {
-        key        => 'tag-redis',
-        name       => 'tag_redis_purge',
-        table_name => 'tag_redis_purge',
-        config_template => 'nginx_redis',
-        prefix     => '/rtag/',
-        mode       => 'tag',
-        tag_base   => 'bench-rtag',
-        backend    => 'redis',
-        index_target_zone => 'bench_tag_redis',
-        require_index_zone_ready => 0,
-        index_tracking_mode => 'readiness_only',
+        index_mode => 'tag',
+        index_zone => 'bench_tag_shm',
     },
     {
         key        => 'exact-scan',
         name       => 'exact_scan_purge',
         table_name => 'exact_scan_purge',
-        config_template => 'nginx',
         prefix     => '/exact-scan/',
         mode       => 'exact',
-        backend    => 'sqlite',
-        index_tracking_mode => 'disabled',
+        index_mode => 'baseline',
     },
     {
         key        => 'exact-index',
         name       => 'exact_indexed_purge',
         table_name => 'exact_indexed_purge',
-        config_template => 'nginx',
         prefix     => '/exact-index/',
         mode       => 'exact',
-        backend    => 'sqlite',
-        index_target_zone => 'bench_exact_index',
-        require_index_zone_ready => 1,
-        index_tracking_mode => 'exact_fanout',
+        index_mode => 'exact-index',
+        index_zone => 'bench_exact_index',
+        require_index_ready => 1,
         vary_header => 'X-Bench-Variant',
         vary_values => [qw(a b c)],
         purge_header => 'X-Bench-Variant',
         purge_header_value => 'a',
     },
     {
-        key        => 'wild-scan',
+        key        => 'wildcard-scan',
         name       => 'wildcard_scan_purge',
         table_name => 'wildcard_scan_purge',
-        config_template => 'nginx',
         prefix     => '/wild-scan/',
         mode       => 'wildcard',
-        backend    => 'sqlite',
-        index_tracking_mode => 'disabled',
+        index_mode => 'baseline',
     },
     {
-        key        => 'wild-index',
+        key        => 'wildcard-index',
         name       => 'wildcard_indexed_purge',
         table_name => 'wildcard_indexed_purge',
-        config_template => 'nginx',
         prefix     => '/wild-index/',
         mode       => 'wildcard',
-        backend    => 'sqlite',
-        index_target_zone => 'bench_wild_index',
-        require_index_zone_ready => 1,
-        index_tracking_mode => 'wildcard_prefix',
+        index_mode => 'wildcard-index',
+        index_zone => 'bench_wild_index',
+        require_index_ready => 1,
     },
 );
 
@@ -193,17 +146,10 @@ my @scenarios;
 for my $key (@selected_keys) {
     die "unknown scenario: $key\n" unless exists $scenario_by_key{$key};
     my %scenario = %{ $scenario_by_key{$key} };
-    $scenario{config_template_path} = defined $override_template
-        ? $override_template->{path}
-        : resolve_config_template(\%config_templates, $scenario{config_template})->{path};
-    $scenario{config_template_name} = defined $override_template
-        ? $override_template->{name}
-        : $scenario{config_template};
     push @scenarios, \%scenario;
 }
 
 my $current_conf;
-my $redis_started = 0;
 my @active_child_pids;
 my $shutdown_signal;
 my $shutting_down = 0;
@@ -216,7 +162,6 @@ $SIG{TERM} = sub { handle_signal('TERM'); };
 END {
     cleanup_active_children();
     eval { stop_nginx($current_conf) if defined $current_conf; };
-    eval { stop_redis() if $redis_started; };
     eval { cleanup_runtime_root(); };
 }
 
@@ -231,51 +176,25 @@ cleanup_runtime_state();
 log_info("Writing run artifacts to $run_dir");
 
 my @results;
-my $active_runtime;
 my $active_scenario;
 my $failure;
 
 eval {
+    cleanup_runtime_state();
+
+    $current_conf = render_runtime_config();
+
+    log_info(sprintf(
+        'Starting nginx with template=%s',
+        $runtime_template_name,
+    ));
+    start_nginx($current_conf);
+    wait_for_stats($stats_url);
+    log_info('Metrics endpoint is ready');
+    record_nginx_error_log($run_dir, $runtime_template_name . '_startup');
+
     for my $scenario (@scenarios) {
         $active_scenario = $scenario;
-
-        my $runtime_key = join("\0",
-            $scenario->{config_template_path},
-            $scenario->{backend},
-        );
-
-        if (!defined $active_runtime || $active_runtime ne $runtime_key) {
-            log_info(sprintf(
-                'Switching runtime: template=%s backend=%s',
-                $scenario->{config_template_name},
-                $scenario->{backend},
-            ));
-            stop_nginx($current_conf) if defined $current_conf;
-            $current_conf = undef;
-
-            if ($redis_started) {
-                log_info('Stopping Redis sidecar');
-                stop_redis();
-                $redis_started = 0;
-            }
-
-            cleanup_runtime_state();
-
-            if ($scenario->{backend} eq 'redis') {
-                log_info('Starting Redis sidecar');
-                start_redis();
-                $redis_started = 1;
-            }
-
-            $current_conf = render_runtime_config($scenario);
-
-            log_info("Starting nginx with $current_conf");
-            start_nginx($current_conf);
-            wait_for_stats($stats_url);
-            log_info('Metrics endpoint is ready');
-            record_nginx_error_log($run_dir, join('_', $scenario->{config_template_name}, $scenario->{backend}, 'startup'));
-            $active_runtime = $runtime_key;
-        }
 
         log_info(sprintf(
             'Running scenario %s (%ss)',
@@ -311,12 +230,6 @@ eval {
 
 stop_nginx($current_conf) if defined $current_conf;
 $current_conf = undef;
-
-if ($redis_started) {
-    log_info('Stopping Redis sidecar');
-    stop_redis();
-    $redis_started = 0;
-}
 
 my $summary = {
     generated_at => $timestamp,
@@ -378,7 +291,7 @@ sub run_scenario {
     log_info("Warming cache for $scenario->{name}");
     warm_cache($scenario->{prefix}, $options{count}, $scenario);
 
-    if (($scenario->{index_tracking_mode} || '') eq 'wildcard_prefix') {
+    if (($scenario->{index_mode} || '') eq 'wildcard-index') {
         # Wildcard index metadata is written asynchronously; give it a brief
         # settle window before running wildcard preflight probes.
         sleep(1.0);
@@ -461,8 +374,7 @@ sub run_scenario {
         scenario      => $scenario->{key},
         name          => $scenario->{name},
         table_name    => $scenario->{table_name},
-        backend       => $scenario->{backend},
-        config_template => $scenario->{config_template_name},
+        config_template => $runtime_template_name,
         duration_s    => $duration_s,
         get           => $get_result,
         purge         => $purge_result,
@@ -494,14 +406,9 @@ sub initialize_runtime_paths {
     $runtime_root = tempdir('ngx-cache-pilot-bench-XXXXXX', TMPDIR => 1, CLEANUP => 0);
     $runtime_conf_dir = "$runtime_root/conf";
     $worker_scratch_dir = "$runtime_root/workers";
-    $sqlite_runtime_dir = "$runtime_root/sqlite";
-    $sqlite_db_path = "$sqlite_runtime_dir/bench_tags.db";
     $nginx_prefix = "$runtime_root/nginx";
     $nginx_error_log = "$nginx_prefix/logs/error.log";
     $nginx_pid_file = "$nginx_prefix/nginx.pid";
-    $redis_runtime_dir = "$runtime_root/redis";
-    $redis_pid_file = "$redis_runtime_dir/redis.pid";
-    $redis_log_file = "$redis_runtime_dir/redis.log";
 }
 
 sub cleanup_runtime_state {
@@ -521,46 +428,26 @@ sub cleanup_runtime_state {
     make_path(
         $runtime_conf_dir,
         $worker_scratch_dir,
-        $sqlite_runtime_dir,
         "$runtime_root/proxy_temp",
         "$runtime_root/client_body_temp",
         "$runtime_root/cache_exact",
-        "$runtime_root/cache_wild",
         "$runtime_root/cache_exact_scan",
         "$runtime_root/cache_exact_index",
         "$runtime_root/cache_wild_scan",
         "$runtime_root/cache_wild_index",
-        "$runtime_root/cache_fanout",
-        "$runtime_root/cache_tag_sqlite",
-        "$runtime_root/cache_tag_redis",
+        "$runtime_root/cache_tag_shm",
         $nginx_prefix,
         "$nginx_prefix/logs",
-        $redis_runtime_dir,
     );
 
-    prepare_sqlite_runtime();
     ensure_nginx_prefix();
 }
 
-sub prepare_sqlite_runtime {
-    chmod 0777, $sqlite_runtime_dir
-        or die "chmod($sqlite_runtime_dir): $!\n";
-
-    open my $fh, '>', $sqlite_db_path or die "open($sqlite_db_path): $!";
-    close $fh or die "close($sqlite_db_path): $!";
-
-    chmod 0666, $sqlite_db_path
-        or die "chmod($sqlite_db_path): $!\n";
-}
-
 sub render_runtime_config {
-    my ($scenario) = @_;
+    my $template_name = sanitize_config_name($runtime_template_name);
+    my $target = "$runtime_conf_dir/bench_nginx_${template_name}.conf";
 
-    my $backend = $scenario->{backend};
-    my $template_name = sanitize_config_name($scenario->{config_template_name});
-    my $target = "$runtime_conf_dir/bench_nginx_${template_name}_${backend}.conf";
-
-    render_config($scenario->{config_template_path}, $target, $options{port});
+    render_config($runtime_template, $target, $options{port});
 
     return $target;
 }
@@ -581,15 +468,12 @@ sub render_config {
         '/tmp/bench_client_body_temp' => "$runtime_root/client_body_temp",
         '/tmp/bench_proxy_temp' => "$runtime_root/proxy_temp",
         '/tmp/bench_cache_exact' => "$runtime_root/cache_exact",
-        '/tmp/bench_cache_wild' => "$runtime_root/cache_wild",
         '/tmp/bench_cache_exact_scan' => "$runtime_root/cache_exact_scan",
         '/tmp/bench_cache_exact_index' => "$runtime_root/cache_exact_index",
         '/tmp/bench_cache_wild_scan' => "$runtime_root/cache_wild_scan",
         '/tmp/bench_cache_wild_index' => "$runtime_root/cache_wild_index",
         '/tmp/bench_cache_fanout' => "$runtime_root/cache_fanout",
-        '/tmp/bench_cache_tag_sqlite' => "$runtime_root/cache_tag_sqlite",
-        '/tmp/bench_cache_tag_redis' => "$runtime_root/cache_tag_redis",
-        '/tmp/bench_tags.db' => $sqlite_db_path,
+        '/tmp/bench_cache_tag_shm' => "$runtime_root/cache_tag_shm",
     );
 
     for my $from (sort { length($b) <=> length($a) } keys %path_map) {
@@ -669,11 +553,8 @@ sub detect_nginx_startup_failure {
 
     for my $line (@lines) {
         if ($line =~ /\[emerg\]/
-                || $line =~ /cannot be respawned/
-                || $line =~ /exited with fatal code/
-                || $line =~ /sqlite (?:prepare|exec) failed/
-                || $line =~ /attempt to write a readonly database/
-                || $line =~ /no such table/) {
+            || $line =~ /cannot be respawned/
+            || $line =~ /exited with fatal code/) {
             return "nginx startup failed: $line";
         }
     }
@@ -736,7 +617,7 @@ sub warm_cache {
 
 sub ensure_index_probe_ready {
     my ($scenario, $stats_url, $timeout_s) = @_;
-    my $mode = $scenario->{index_tracking_mode} || 'disabled';
+    my $mode = $scenario->{index_mode} || 'baseline';
     my $probe_prefix;
     my @probe_urls;
     my $purge_url;
@@ -752,7 +633,7 @@ sub ensure_index_probe_ready {
     return {
         attempted => 0,
         succeeded => 0,
-    } unless $mode eq 'wildcard_prefix';
+    } unless $mode eq 'wildcard-index';
 
     $probe_prefix = $options{count};
     $deadline = hires_time() + $timeout_s;
@@ -853,12 +734,12 @@ sub scenario_ready_state {
     my $state;
     my $stats;
 
-    return 1 unless $scenario->{require_index_zone_ready};
-    return 1 unless defined $scenario->{index_target_zone}
-                    && length $scenario->{index_target_zone};
+    return 1 unless $scenario->{require_index_ready};
+    return 1 unless defined $scenario->{index_zone}
+                    && length $scenario->{index_zone};
 
     $stats = fetch_stats($stats_url);
-    $zone = $stats->{zones}->{$scenario->{index_target_zone}};
+    $zone = $stats->{zones}->{$scenario->{index_zone}};
     return 0 unless ref($zone) eq 'HASH';
 
     $state = $zone->{index}->{state_code};
@@ -867,15 +748,15 @@ sub scenario_ready_state {
 
 sub scenario_index_plan {
     my ($scenario) = @_;
-    my $mode = $scenario->{index_tracking_mode} || 'disabled';
-    my $zone = defined $scenario->{index_target_zone}
-               ? $scenario->{index_target_zone} : '';
+    my $mode = $scenario->{index_mode} || 'baseline';
+    my $zone = defined $scenario->{index_zone}
+               ? $scenario->{index_zone} : '';
 
     return {
         tracking_mode   => $mode,
         target_zone     => $zone,
-        ready_gate      => $scenario->{require_index_zone_ready} ? 1 : 0,
-        expected_assist => ($mode eq 'wildcard_prefix' || $mode eq 'exact_fanout')
+        ready_gate      => $scenario->{require_index_ready} ? 1 : 0,
+        expected_assist => ($mode eq 'wildcard-index' || $mode eq 'exact-index')
                            ? 1 : 0,
         short_label     => index_plan_short_label($mode),
     };
@@ -883,20 +764,20 @@ sub scenario_index_plan {
 
 sub build_index_report {
     my ($scenario, $before, $after, $metrics_delta, $nginx_log, $probe_report) = @_;
-    my $mode = $scenario->{index_tracking_mode} || 'disabled';
-    my $zone = $scenario->{index_target_zone};
+    my $mode = $scenario->{index_mode} || 'baseline';
+    my $zone = $scenario->{index_zone};
     my $before_state = zone_index_state_code($before, $zone);
     my $after_state = zone_index_state_code($after, $zone);
     my $wildcard_hits = key_index_counter_delta($metrics_delta, 'wildcard_hits');
     my $exact_fanout = key_index_counter_delta($metrics_delta, 'exact_fanout');
     my $used_assist = 0;
-    my $expected_assist = ($mode eq 'wildcard_prefix' || $mode eq 'exact_fanout') ? 1 : 0;
+    my $expected_assist = ($mode eq 'wildcard-index' || $mode eq 'exact-index') ? 1 : 0;
 
-    if ($mode eq 'wildcard_prefix' && $wildcard_hits > 0) {
+    if ($mode eq 'wildcard-index' && $wildcard_hits > 0) {
         $used_assist = 1;
     }
 
-    if ($mode eq 'exact_fanout' && $exact_fanout > 0) {
+    if ($mode eq 'exact-index' && $exact_fanout > 0) {
         $used_assist = 1;
     }
 
@@ -920,32 +801,16 @@ sub build_index_report {
                                                                $ready_after),
     };
 
-    if ($mode eq 'wildcard_prefix') {
+    if ($mode eq 'wildcard-index') {
         $report->{wildcard_prefix_hits_delta} = $wildcard_hits;
         add_probe_diagnostic_summary($report, $probe_report);
-        add_sqlite_diagnostic_summary($report, $nginx_log);
     }
 
-    if ($mode eq 'exact_fanout') {
+    if ($mode eq 'exact-index') {
         $report->{exact_fanout_delta} = $exact_fanout;
-        add_sqlite_diagnostic_summary($report, $nginx_log);
     }
 
     return $report;
-}
-
-sub add_sqlite_diagnostic_summary {
-    my ($report, $nginx_log) = @_;
-
-    $report->{sqlite_prepare_failed} = 0;
-    $report->{sqlite_locked} = 0;
-    $report->{sqlite_no_table} = 0;
-
-    return unless defined $nginx_log && ref($nginx_log->{error_summary}) eq 'HASH';
-
-    $report->{sqlite_prepare_failed} = $nginx_log->{error_summary}->{sqlite_prepare_failed} || 0;
-    $report->{sqlite_locked} = $nginx_log->{error_summary}->{sqlite_locked} || 0;
-    $report->{sqlite_no_table} = $nginx_log->{error_summary}->{sqlite_no_table} || 0;
 }
 
 sub add_probe_diagnostic_summary {
@@ -1012,10 +877,10 @@ sub key_index_counter_delta {
 sub index_plan_short_label {
     my ($mode) = @_;
 
-    return 'off' if $mode eq 'disabled';
-    return 'ready' if $mode eq 'readiness_only';
-    return 'fanout' if $mode eq 'exact_fanout';
-    return 'w-prefix' if $mode eq 'wildcard_prefix';
+    return 'off' if $mode eq 'baseline';
+    return 'ready' if $mode eq 'tag';
+    return 'fanout' if $mode eq 'exact-index';
+    return 'w-prefix' if $mode eq 'wildcard-index';
 
     return 'other';
 }
@@ -1023,9 +888,9 @@ sub index_plan_short_label {
 sub index_report_short_label {
     my ($mode, $used_assist, $ready_before, $ready_after) = @_;
 
-    return 'off' if $mode eq 'disabled';
+    return 'off' if $mode eq 'baseline';
 
-    if ($mode eq 'wildcard_prefix' || $mode eq 'exact_fanout') {
+    if ($mode eq 'wildcard-index' || $mode eq 'exact-index') {
         return 'assist' if $used_assist;
         return 'miss-rdy' if $ready_before;
         return 'miss';
@@ -1133,27 +998,7 @@ sub record_nginx_error_log {
 sub summarize_nginx_error_chunk {
     my ($chunk) = @_;
 
-    my $summary = {
-        sqlite_prepare_failed => 0,
-        sqlite_locked => 0,
-        sqlite_no_table => 0,
-    };
-
-    for my $line (split /\n/, $chunk) {
-        if ($line =~ /sqlite prepare failed/) {
-            $summary->{sqlite_prepare_failed}++;
-        }
-
-        if ($line =~ /database is locked/) {
-            $summary->{sqlite_locked}++;
-        }
-
-        if ($line =~ /no such table/) {
-            $summary->{sqlite_no_table}++;
-        }
-    }
-
-    return $summary;
+    return {};
 }
 
 sub consume_nginx_error_log {
@@ -1270,41 +1115,6 @@ sub print_assertion_result {
     for my $violation (@{ $assertions->{violations} }) {
         print "- $violation\n";
     }
-}
-
-sub start_redis {
-    stop_redis() if -e $redis_pid_file;
-
-    make_path($redis_runtime_dir);
-
-    run_system(
-        'redis-server',
-        '--port', $redis_port,
-        '--daemonize', 'yes',
-        '--save', '',
-        '--loglevel', 'warning',
-        '--pidfile', $redis_pid_file,
-        '--logfile', $redis_log_file,
-    );
-
-    for (1 .. 50) {
-        my $status = system('redis-cli', '-p', $redis_port, 'PING');
-        if ($status == 0) {
-            run_system('redis-cli', '-p', $redis_port, '-n', $redis_db, 'FLUSHDB');
-            return;
-        }
-        sleep(0.2);
-    }
-
-    die "redis-server did not become ready on port $redis_port\n";
-}
-
-sub stop_redis {
-    return unless -e $redis_pid_file;
-
-    system('redis-cli', '-p', $redis_port, 'shutdown', 'nosave');
-    sleep(0.2);
-    unlink $redis_pid_file if -e $redis_pid_file;
 }
 
 sub run_system {
@@ -1424,45 +1234,6 @@ sub evaluate_metric_rule {
     }
 
     return undef;
-}
-
-sub discover_config_templates {
-    my ($bench_dir) = @_;
-    my %templates;
-
-    for my $path (glob("$bench_dir/*.conf")) {
-        my ($name) = $path =~ m{/([^/]+)\.conf$};
-        next unless defined $name;
-
-        $templates{$name} = {
-            name => $name,
-            path => $path,
-        };
-    }
-
-    die "no benchmark config templates found under $bench_dir\n"
-        unless %templates;
-
-    return %templates;
-}
-
-sub resolve_config_template {
-    my ($templates, $value) = @_;
-
-    if (exists $templates->{$value}) {
-        return $templates->{$value};
-    }
-
-    if (-f $value) {
-        my ($name) = $value =~ m{/([^/]+)\.conf$};
-        $name = defined $name ? $name : $value;
-        return {
-            name => $name,
-            path => $value,
-        };
-    }
-
-    die "unknown config template $value\n";
 }
 
 sub sanitize_config_name {

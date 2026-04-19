@@ -20,7 +20,7 @@ my %options = (
     duration    => 30,
     port        => 18080,
     prefix      => '/exact/',
-    scenario    => 'exact_get',
+    scenario    => 'exact_baseline_get',
     scratch_dir => '/tmp',
 );
 

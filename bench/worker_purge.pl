@@ -18,7 +18,7 @@ my %options = (
     mode     => 'exact',
     port     => 18080,
     prefix   => '/exact/',
-    scenario => 'exact_purge',
+    scenario => 'exact_baseline_purge',
     tag_base => 'bench-tag',
 );
 

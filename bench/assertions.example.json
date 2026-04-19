@@ -5,7 +5,7 @@
     }
   },
   "scenarios": {
-    "exact": {
+    "exact-baseline": {
       "get.rps": {
         "min": 3000
       },
@@ -14,14 +14,6 @@
       },
       "purge.rps": {
         "min": 9
-      }
-    },
-    "wild": {
-      "get.rps": {
-        "min": 2500
-      },
-      "get.latency_us.p95": {
-        "max": 40000
       }
     },
     "exact-scan": {
@@ -40,7 +32,7 @@
         "max": 40000
       }
     },
-    "wild-scan": {
+    "wildcard-scan": {
       "get.rps": {
         "min": 2000
       },
@@ -48,7 +40,7 @@
         "max": 50000
       }
     },
-    "wild-index": {
+    "wildcard-index": {
       "get.rps": {
         "min": 2000
       },
@@ -56,12 +48,7 @@
         "max": 50000
       }
     },
-    "tag-sqlite": {
-      "get.latency_us.p95": {
-        "max": 40000
-      }
-    },
-    "tag-redis": {
+    "tag-shm": {
       "get.latency_us.p95": {
         "max": 40000
       }

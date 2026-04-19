@@ -5,7 +5,7 @@ use Test::Nginx::Socket;
 
 repeat_each(1);
 
-plan tests => repeat_each() * 164;
+plan tests => repeat_each() * 163;
 
 our $http_config = <<'_EOC_';
     proxy_cache_path  /tmp/ngx_cache_pilot_cache keys_zone=test_cache:10m;
@@ -17,7 +17,7 @@ our $http_config = <<'_EOC_';
     map $request_method $purge_never {
         default 0;
     }
-    cache_pilot_index_store   sqlite /tmp/ngx_cache_pilot_tags.sqlite;
+    cache_pilot_index_zone_size 32m;
 _EOC_
 
 our $http_config_hard = <<'_EOC_';
@@ -30,7 +30,7 @@ our $http_config_hard = <<'_EOC_';
     map $request_method $purge_never {
         default 0;
     }
-    cache_pilot_index_store   sqlite /tmp/ngx_cache_pilot_tags_hard.sqlite;
+    cache_pilot_index_zone_size 32m;
 _EOC_
 
 our $http_config_cache_tag = <<'_EOC_';
@@ -43,7 +43,7 @@ our $http_config_cache_tag = <<'_EOC_';
     map $request_method $purge_never {
         default 0;
     }
-    cache_pilot_index_store   sqlite /tmp/ngx_cache_pilot_tags_cache_tag.sqlite;
+    cache_pilot_index_zone_size 32m;
 _EOC_
 
 our $http_config_override = <<'_EOC_';
@@ -56,7 +56,7 @@ our $http_config_override = <<'_EOC_';
     map $request_method $purge_never {
         default 0;
     }
-    cache_pilot_index_store   sqlite /tmp/ngx_cache_pilot_tags_override.sqlite;
+    cache_pilot_index_zone_size 32m;
 _EOC_
 
 our $http_config_restart = <<'_EOC_';
@@ -69,7 +69,7 @@ our $http_config_restart = <<'_EOC_';
     map $request_method $purge_never {
         default 0;
     }
-    cache_pilot_index_store   sqlite /tmp/ngx_cache_pilot_tags_restart.sqlite;
+    cache_pilot_index_zone_size 32m;
 _EOC_
 
 our $http_config_plain = <<'_EOC_';
@@ -82,7 +82,7 @@ our $http_config_plain = <<'_EOC_';
     map $request_method $purge_never {
         default 0;
     }
-    cache_pilot_index_store   sqlite /tmp/ngx_cache_pilot_tags_plain.sqlite;
+    cache_pilot_index_zone_size 32m;
 _EOC_
 
 our $http_config_custom = <<'_EOC_';
@@ -95,7 +95,7 @@ our $http_config_custom = <<'_EOC_';
     map $request_method $purge_never {
         default 0;
     }
-    cache_pilot_index_store   sqlite /tmp/ngx_cache_pilot_tags_custom.sqlite;
+    cache_pilot_index_zone_size 32m;
 _EOC_
 
 our $http_config_multi_tag = <<'_EOC_';
@@ -108,7 +108,7 @@ our $http_config_multi_tag = <<'_EOC_';
     map $request_method $purge_never {
         default 0;
     }
-    cache_pilot_index_store   sqlite /tmp/ngx_cache_pilot_tags_multi_tag.sqlite;
+    cache_pilot_index_zone_size 32m;
 _EOC_
 
 our $config_multi_tag = <<'_EOC_';
@@ -171,7 +171,7 @@ our $http_config_overload = <<'_EOC_';
     map $request_method $purge_never {
         default 0;
     }
-    cache_pilot_index_store   sqlite /tmp/ngx_cache_pilot_tags_overload.sqlite;
+    cache_pilot_index_zone_size 32m;
 _EOC_
 
 our $config_overload = <<'_EOC_';
@@ -637,7 +637,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 
-=== TEST 23: second tag purge reuses persisted index after restart
+=== TEST 23: second tag purge reports reused index after restart bootstrap
 --- http_config eval: $::http_config_restart
 --- config eval: $::config_soft_json
 --- request
@@ -649,10 +649,6 @@ X-Purge-Mode: soft
 --- response_headers
 Content-Type: application/json
 --- response_body_like: ^\{\"key\": \"\/proxy\/a\?t=restart\", \"cache_pilot\": \{\"purge_path\": \"reused-persisted-index\"\}\}$
---- grep_error_log eval
-qr/cache_tag request reusing persisted index for zone "test_cache"/
---- grep_error_log_out
-cache_tag request reusing persisted index for zone "test_cache"
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 
@@ -813,7 +809,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 
-=== TEST 34: prepare sqlite multi-tag-a cache entry
+=== TEST 34: prepare multi-tag-a cache entry
 --- http_config eval: $::http_config_multi_tag
 --- config eval: $::config_multi_tag
 --- request
@@ -828,7 +824,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 
-=== TEST 35: prepare sqlite multi-tag-b cache entry
+=== TEST 35: prepare multi-tag-b cache entry
 --- http_config eval: $::http_config_multi_tag
 --- config eval: $::config_multi_tag
 --- request
@@ -843,7 +839,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 
-=== TEST 36: prepare sqlite unrelated multi-tag-c cache entry
+=== TEST 36: prepare unrelated multi-tag-c cache entry
 --- http_config eval: $::http_config_multi_tag
 --- config eval: $::config_multi_tag
 --- request
@@ -858,7 +854,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 
-=== TEST 37: sqlite purge by two tags exercises IN clause path
+=== TEST 37: purge by two tags matches both entries
 --- http_config eval: $::http_config_multi_tag
 --- config eval: $::config_multi_tag
 --- request
@@ -875,7 +871,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 
-=== TEST 38: sqlite multi-tag-a entry is expired after two-tag purge
+=== TEST 38: multi-tag-a entry is expired after two-tag purge
 --- http_config eval: $::http_config_multi_tag
 --- config eval: $::config_multi_tag
 --- request
@@ -890,7 +886,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 
-=== TEST 39: sqlite multi-tag-b entry is expired after two-tag purge
+=== TEST 39: multi-tag-b entry is expired after two-tag purge
 --- http_config eval: $::http_config_multi_tag
 --- config eval: $::config_multi_tag
 --- request
@@ -905,7 +901,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 
-=== TEST 40: sqlite unrelated entry remains a hit after two-tag purge
+=== TEST 40: unrelated entry remains a hit after two-tag purge
 --- http_config eval: $::http_config_multi_tag
 --- config eval: $::config_multi_tag
 --- request
@@ -920,7 +916,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 
-=== TEST 41: prepare sqlite overload cache entry for truncation test
+=== TEST 41: prepare overload cache entry for truncation test
 --- http_config eval: $::http_config_overload
 --- config eval: $::config_overload
 --- request
@@ -935,7 +931,7 @@ qr/\[(error|crit|alert|emerg)\]/
 
 
 
-=== TEST 42: sqlite purge with 1001 tags logs truncation warning at 1000
+=== TEST 42: purge with 1001 tags logs truncation warning at 1000
 --- http_config eval: $::http_config_overload
 --- config eval: $::config_overload
 --- request
