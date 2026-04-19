@@ -14,12 +14,6 @@ static ngx_int_t ngx_http_cache_index_store_init_zone(ngx_shm_zone_t *shm_zone,
         void *data);
 static ngx_http_cache_index_store_t *ngx_http_cache_index_store_shm_open(
     ngx_http_cache_pilot_main_conf_t *pmcf, ngx_log_t *log);
-static void ngx_http_cache_index_store_shm_close(
-    ngx_http_cache_index_store_t *store);
-static ngx_flag_t ngx_http_cache_index_store_shm_lock(
-    ngx_http_cache_index_store_t *store);
-static void ngx_http_cache_index_store_shm_unlock(
-    ngx_http_cache_index_store_t *store, ngx_flag_t locked);
 static ngx_int_t ngx_http_cache_index_store_shm_upsert_file_meta(
     ngx_http_cache_index_store_t *store, ngx_str_t *zone_name,
     ngx_str_t *path, ngx_str_t *cache_key_text, time_t mtime, off_t size,
@@ -122,6 +116,8 @@ static u_char *ngx_http_cache_index_store_shm_file_key(
     ngx_http_cache_index_shm_file_t *file);
 static void ngx_http_cache_index_store_shm_touch_zone_locked(
     ngx_http_cache_index_shm_zone_t *zone);
+static uint32_t ngx_http_cache_index_store_shm_path_hash(ngx_str_t *path);
+static uint32_t ngx_http_cache_index_store_shm_path_hash_legacy(ngx_str_t *path);
 static ngx_int_t ngx_http_cache_index_store_shm_path_cmp(
     ngx_str_t *path, ngx_http_cache_index_shm_file_t *file);
 static ngx_int_t ngx_http_cache_index_store_shm_key_cmp(
@@ -192,18 +188,6 @@ ngx_http_cache_index_store_open_reader(ngx_http_cache_pilot_main_conf_t *pmcf,
     }
 
     return ngx_http_cache_index_store_shm_open(pmcf, log);
-}
-
-void
-ngx_http_cache_index_store_close(ngx_http_cache_index_store_t *store) {
-    if (store == NULL) {
-        return;
-    }
-
-    /* Close the backing resource (socket / db handle).  The store struct
-     * itself is allocated from cycle->pool and freed automatically when
-     * the pool is destroyed on worker exit or config reload. */
-    ngx_http_cache_index_store_shm_close(store);
 }
 
 ngx_int_t
@@ -366,9 +350,6 @@ ngx_http_cache_index_store_runtime_init(ngx_cycle_t *cycle,
 
 void
 ngx_http_cache_index_store_runtime_shutdown(void) {
-    ngx_http_cache_index_store_close(ngx_http_cache_index_store_runtime.writer);
-    ngx_http_cache_index_store_close(ngx_http_cache_index_store_runtime.reader);
-
     ngx_memzero(&ngx_http_cache_index_store_runtime,
                 sizeof(ngx_http_cache_index_store_runtime));
 }
@@ -449,26 +430,6 @@ ngx_http_cache_index_store_shm_open(ngx_http_cache_pilot_main_conf_t *pmcf,
     store->ctx = ctx;
 
     return store;
-}
-
-static void
-ngx_http_cache_index_store_shm_close(ngx_http_cache_index_store_t *store) {
-    (void) store;
-}
-
-static ngx_flag_t
-ngx_http_cache_index_store_shm_lock(ngx_http_cache_index_store_t *store) {
-    ngx_shmtx_lock(&store->ctx->shpool->mutex);
-
-    return 1;
-}
-
-static void
-ngx_http_cache_index_store_shm_unlock(ngx_http_cache_index_store_t *store,
-                                      ngx_flag_t locked) {
-    if (locked) {
-        ngx_shmtx_unlock(&store->ctx->shpool->mutex);
-    }
 }
 
 static void
@@ -812,12 +773,32 @@ ngx_http_cache_index_store_shm_get_tag_entry_locked(
 static ngx_http_cache_index_shm_file_t *
 ngx_http_cache_index_store_shm_lookup_file(ngx_http_cache_index_shm_zone_t *zone,
         ngx_str_t *path) {
-    uint32_t                        hash;
+    uint32_t                         hash;
+    uint32_t                         legacy_hash;
+    ngx_http_cache_index_shm_file_t *file;
 
-    hash = ngx_crc32_short(path->data, path->len);
+    /*
+     * New nodes use the full-path crc32_long hash, but reloads can reuse SHM
+     * that still contains legacy crc32_short path keys. Probe the current
+     * hash first, then fall back to the legacy hash only when they differ.
+     */
+    hash = ngx_http_cache_index_store_shm_path_hash(path);
+
+    file = ngx_http_cache_index_store_shm_lookup_generic(
+               &zone->path_index, hash, path,
+               ngx_http_cache_index_store_shm_path_node_data,
+               ngx_http_cache_index_store_shm_path_node_cmp);
+    if (file != NULL) {
+        return file;
+    }
+
+    legacy_hash = ngx_http_cache_index_store_shm_path_hash_legacy(path);
+    if (legacy_hash == hash) {
+        return NULL;
+    }
 
     return ngx_http_cache_index_store_shm_lookup_generic(
-               &zone->path_index, hash, path,
+               &zone->path_index, legacy_hash, path,
                ngx_http_cache_index_store_shm_path_node_data,
                ngx_http_cache_index_store_shm_path_node_cmp);
 }
@@ -871,6 +852,16 @@ static void
 ngx_http_cache_index_store_shm_touch_zone_locked(
     ngx_http_cache_index_shm_zone_t *zone) {
     zone->last_updated_at = ngx_time();
+}
+
+static uint32_t
+ngx_http_cache_index_store_shm_path_hash(ngx_str_t *path) {
+    return ngx_crc32_long(path->data, path->len);
+}
+
+static uint32_t
+ngx_http_cache_index_store_shm_path_hash_legacy(ngx_str_t *path) {
+    return ngx_crc32_short(path->data, path->len);
 }
 
 static ngx_int_t
@@ -994,16 +985,15 @@ ngx_http_cache_index_store_shm_upsert_file_meta(ngx_http_cache_index_store_t *st
     ngx_uint_t                         i;
     size_t                             alloc_size, tag_bytes, copied;
     u_char                            *p;
-    ngx_flag_t                         locked;
 
     (void) log;
 
     ctx = store->ctx;
-    locked = ngx_http_cache_index_store_shm_lock(store);
+    ngx_shmtx_lock(&ctx->shpool->mutex);
 
     zone = ngx_http_cache_index_store_shm_get_zone_locked(ctx, zone_name, 1);
     if (zone == NULL) {
-        ngx_http_cache_index_store_shm_unlock(store, locked);
+        ngx_shmtx_unlock(&ctx->shpool->mutex);
         return NGX_ERROR;
     }
 
@@ -1027,7 +1017,7 @@ ngx_http_cache_index_store_shm_upsert_file_meta(ngx_http_cache_index_store_t *st
 
     file = ngx_http_cache_index_store_shm_alloc_locked(ctx, alloc_size);
     if (file == NULL) {
-        ngx_http_cache_index_store_shm_unlock(store, locked);
+        ngx_shmtx_unlock(&ctx->shpool->mutex);
         return NGX_ERROR;
     }
 
@@ -1037,7 +1027,7 @@ ngx_http_cache_index_store_shm_upsert_file_meta(ngx_http_cache_index_store_t *st
     file->path_len = path->len;
     file->key_len = cache_key_text->len;
     file->tag_count = tags != NULL ? tags->nelts : 0;
-    file->path_node.key = ngx_crc32_short(path->data, path->len);
+    file->path_node.key = ngx_http_cache_index_store_shm_path_hash(path);
     ngx_queue_init(&file->tag_members);
 
     p = file->data;
@@ -1064,20 +1054,20 @@ ngx_http_cache_index_store_shm_upsert_file_meta(ngx_http_cache_index_store_t *st
     if (ngx_http_cache_index_store_shm_link_exact_key_locked(ctx, zone, file)
             != NGX_OK) {
         ngx_http_cache_index_store_shm_remove_file_locked(ctx, zone, file);
-        ngx_http_cache_index_store_shm_unlock(store, locked);
+        ngx_shmtx_unlock(&ctx->shpool->mutex);
         return NGX_ERROR;
     }
 
     if (ngx_http_cache_index_store_shm_link_tags_locked(ctx, zone, file, tags)
             != NGX_OK) {
         ngx_http_cache_index_store_shm_remove_file_locked(ctx, zone, file);
-        ngx_http_cache_index_store_shm_unlock(store, locked);
+        ngx_shmtx_unlock(&ctx->shpool->mutex);
         return NGX_ERROR;
     }
 
     ngx_http_cache_index_store_shm_touch_zone_locked(zone);
 
-    ngx_http_cache_index_store_shm_unlock(store, locked);
+    ngx_shmtx_unlock(&ctx->shpool->mutex);
 
     return NGX_OK;
 }
@@ -1089,12 +1079,11 @@ ngx_http_cache_index_store_shm_delete_file(ngx_http_cache_index_store_t *store,
     ngx_http_cache_index_store_ctx_t  *ctx;
     ngx_http_cache_index_shm_zone_t   *zone;
     ngx_http_cache_index_shm_file_t   *file;
-    ngx_flag_t                         locked;
 
     (void) log;
 
     ctx = store->ctx;
-    locked = ngx_http_cache_index_store_shm_lock(store);
+    ngx_shmtx_lock(&ctx->shpool->mutex);
 
     zone = ngx_http_cache_index_store_shm_lookup_zone(ctx->sh, zone_name);
     if (zone != NULL) {
@@ -1105,7 +1094,7 @@ ngx_http_cache_index_store_shm_delete_file(ngx_http_cache_index_store_t *store,
         }
     }
 
-    ngx_http_cache_index_store_shm_unlock(store, locked);
+    ngx_shmtx_unlock(&ctx->shpool->mutex);
 
     return NGX_OK;
 }
@@ -1319,16 +1308,15 @@ ngx_http_cache_index_store_shm_set_zone_state(ngx_http_cache_index_store_t *stor
         ngx_log_t *log) {
     ngx_http_cache_index_store_ctx_t  *ctx;
     ngx_http_cache_index_shm_zone_t   *zone;
-    ngx_flag_t                         locked;
 
     (void) log;
 
     ctx = store->ctx;
-    locked = ngx_http_cache_index_store_shm_lock(store);
+    ngx_shmtx_lock(&ctx->shpool->mutex);
 
     zone = ngx_http_cache_index_store_shm_get_zone_locked(ctx, zone_name, 1);
     if (zone == NULL) {
-        ngx_http_cache_index_store_shm_unlock(store, locked);
+        ngx_shmtx_unlock(&ctx->shpool->mutex);
         return NGX_ERROR;
     }
 
@@ -1336,7 +1324,7 @@ ngx_http_cache_index_store_shm_set_zone_state(ngx_http_cache_index_store_t *stor
     zone->last_bootstrap_at = state->last_bootstrap_at;
     zone->last_updated_at = state->last_updated_at;
 
-    ngx_http_cache_index_store_shm_unlock(store, locked);
+    ngx_shmtx_unlock(&ctx->shpool->mutex);
 
     return NGX_OK;
 }

@@ -850,7 +850,6 @@ ngx_http_cache_index_bootstrap_thread(void *data, ngx_log_t *log) {
         }
     }
 
-    ngx_http_cache_index_store_close(writer);
 }
 
 /* Completion handler: called in the event loop after the bootstrap thread

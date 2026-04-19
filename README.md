@@ -455,7 +455,7 @@ location /_cache_stats {
 
 Additional zones are omitted for brevity.
 
-`zones.<zone>.max_size` reports the configured NGINX cache zone limit. When the in-memory index is enabled, `index.max_size` reports the configured `cache_pilot_index_zone_size` shared-memory limit for the index and `index.last_updated_at` reports the Unix epoch timestamp of the last index mutation observed for that zone. `index` is omitted when the in-memory index is unavailable. `index.state_code` uses `0=disabled`, `1=configured`, and `2=ready`. `purges` counters are global across all zones and survive `nginx -s reload`. `purged` uses the same `exact`, `wildcard`, `tag`, and `all` buckets with `hard` and `soft` counts for cumulative cache entries removed or expired by each purge path.
+`zones.<zone>.max_size` reports the configured NGINX cache zone limit. When the in-memory index is enabled, `index.max_size` reports the configured `cache_pilot_index_zone_size` shared-memory limit for the index and `index.last_updated_at` reports the Unix epoch timestamp of the last index mutation observed for that zone. `index` is omitted when the in-memory index is unavailable. `index.state_code` uses `0=disabled`, `1=configured`, and `2=ready`. `index.backend` is currently always `"shm"`. `purges` counters are global across all zones and survive `nginx -s reload`. `purged` uses the same `exact`, `wildcard`, `tag`, and `all` buckets with `hard` and `soft` counts for cumulative cache entries removed or expired by each purge path.
 
 **Prometheus metrics** (prefix `nginx_cache_pilot_`):
 
@@ -552,6 +552,7 @@ Notes:
 - Cache-tag support currently requires Linux.
 - The tag index lives in a shared-memory zone sized by `cache_pilot_index_zone_size`.
 - After a cold restart the index is rebuilt from cache files during startup. Indexed tag purges decline until that rebuild has completed for the target zone.
+- Rebuild time is roughly linear in the number of cache files and the cost of reading their headers, so large caches can take seconds to minutes to become ready after restart. Use `cache_pilot_stats` to gate deploy or purge automation on readiness.
 - The cache watcher keeps the index fresh during normal operation and applies queued inotify updates on a 250 ms coalescing timer.
 - When built with `--with-threads`, the startup cache-tree bootstrap and wildcard purge scans run in an nginx thread pool, keeping the event loop unblocked. Without threads, both operations run synchronously.
 
