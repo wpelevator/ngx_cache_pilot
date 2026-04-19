@@ -178,6 +178,7 @@ my @active_child_pids;
 my $shutdown_signal;
 my $shutting_down = 0;
 my $nginx_error_log_offset = 0;
+my $pending_nginx_error_log = '';
 
 $SIG{INT} = sub { handle_signal('INT'); };
 $SIG{TERM} = sub { handle_signal('TERM'); };
@@ -186,6 +187,7 @@ END {
     cleanup_active_children();
     eval { stop_nginx($current_conf) if defined $current_conf; };
     eval { stop_redis() if $redis_started; };
+    eval { cleanup_runtime_root(); };
 }
 
 prepare_output_dir($options{out_dir});
@@ -466,6 +468,7 @@ sub cleanup_runtime_state {
     }
 
     $nginx_error_log_offset = 0;
+    $pending_nginx_error_log = '';
 
     make_path(
         $runtime_conf_dir,
@@ -582,10 +585,65 @@ sub wait_for_stats {
             die "stats payload missing zones\n" unless ref($payload->{zones}) eq 'HASH';
         };
         return if !$@;
+
+        my $startup_failure = detect_nginx_startup_failure();
+        die "$startup_failure\n" if defined $startup_failure;
+
         sleep(0.2);
     }
 
     die "nginx did not become ready at $url\n";
+}
+
+sub cleanup_runtime_root {
+    return unless defined $runtime_root && -e $runtime_root;
+
+    remove_tree($runtime_root, { error => \my $error });
+    if ($error && @{$error}) {
+        for my $entry (@{$error}) {
+            my ($failed_path, $message) = %{$entry};
+            die "remove_tree($failed_path): $message\n" if defined $message;
+        }
+    }
+}
+
+sub detect_nginx_startup_failure {
+    my $chunk = stash_nginx_error_log_chunk();
+    my @lines = grep { length $_ } split /\n/, $chunk;
+
+    for my $line (@lines) {
+        if ($line =~ /\[emerg\]/
+                || $line =~ /cannot be respawned/
+                || $line =~ /exited with fatal code/
+                || $line =~ /sqlite (?:prepare|exec) failed/
+                || $line =~ /attempt to write a readonly database/
+                || $line =~ /no such table/) {
+            return "nginx startup failed: $line";
+        }
+    }
+
+    if (defined $nginx_pid_file && -e $nginx_pid_file) {
+        my $pid = read_pid_file($nginx_pid_file);
+        if (defined $pid && $pid > 0 && !kill(0, $pid)) {
+            return "nginx master exited during startup";
+        }
+    }
+
+    return undef;
+}
+
+sub read_pid_file {
+    my ($file) = @_;
+
+    open my $fh, '<', $file or return undef;
+    my $pid = <$fh>;
+    close $fh;
+
+    return undef unless defined $pid;
+    chomp $pid;
+    return undef unless $pid =~ /^\d+$/;
+
+    return 0 + $pid;
 }
 
 sub warm_cache {
@@ -876,7 +934,9 @@ sub update_latest_symlink {
 sub record_nginx_error_log {
     my ($run_dir, $label) = @_;
 
-    my $chunk = consume_nginx_error_log();
+    my $chunk = $pending_nginx_error_log;
+    $pending_nginx_error_log = '';
+    $chunk .= consume_nginx_error_log();
     return undef unless length $chunk;
 
     my $safe_label = sanitize_config_name($label);
@@ -940,6 +1000,16 @@ sub consume_nginx_error_log {
     $chunk = '' unless defined $chunk;
     $nginx_error_log_offset = tell($fh);
     close $fh or die "close($nginx_error_log): $!";
+
+    return $chunk;
+}
+
+sub stash_nginx_error_log_chunk {
+    my $chunk = consume_nginx_error_log();
+
+    if (length $chunk) {
+        $pending_nginx_error_log .= $chunk;
+    }
 
     return $chunk;
 }
