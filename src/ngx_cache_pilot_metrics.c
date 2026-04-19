@@ -16,6 +16,7 @@ typedef struct {
     ngx_str_t  name;
     off_t      size;
     off_t      max_size;
+    off_t      index_max_size;
     ngx_uint_t cold;             /* 1 while nginx cache loader is running */
     ngx_uint_t entries_valid;
     ngx_uint_t entries_expired;
@@ -23,6 +24,7 @@ typedef struct {
     ngx_uint_t index_state;
     ngx_uint_t has_index;
     ngx_uint_t index_backend;      /* NGX_HTTP_CACHE_TAG_BACKEND_* */
+    time_t     index_last_updated_at;
 } ngx_http_cache_pilot_zone_snapshot_t;
 
 
@@ -74,11 +76,13 @@ ngx_http_cache_pilot_snapshot_zone(ngx_http_cache_pilot_stat_zone_t *sz,
     ngx_http_file_cache_t *cache;
 #if (NGX_LINUX)
     ngx_http_cache_index_store_t     *reader;
+    ngx_http_cache_index_zone_state_t state;
 #endif
 
     cache = sz->cache;
     snap->name     = sz->name;
     snap->max_size = cache->max_size;
+    snap->index_max_size = 0;
 
     /* Snapshot size + rbtree under the shpool mutex */
     ngx_shmtx_lock(&cache->shpool->mutex);
@@ -102,16 +106,28 @@ ngx_http_cache_pilot_snapshot_zone(ngx_http_cache_pilot_stat_zone_t *sz,
     snap->index_state    = NGX_CACHE_PILOT_INDEX_STATE_DISABLED;
     snap->has_index      = 0;
     snap->index_backend  = 0;
+    snap->index_last_updated_at = 0;
 
 #if (NGX_LINUX)
     if (ngx_http_cache_index_store_configured(pmcf)) {
         snap->index_state   = NGX_CACHE_PILOT_INDEX_STATE_CONFIGURED;
         snap->has_index     = 1;
         snap->index_backend = (ngx_uint_t) pmcf->backend;
+        snap->index_max_size = (off_t) pmcf->index_shm_size;
 
         reader = ngx_http_cache_index_store_reader(pmcf, ngx_cycle->log);
         if (reader == NULL && ngx_http_cache_index_is_owner()) {
             reader = ngx_http_cache_index_store_writer();
+        }
+
+        state.bootstrap_complete = 0;
+        state.last_bootstrap_at = 0;
+        state.last_updated_at = 0;
+
+        if (reader != NULL
+                && ngx_http_cache_index_store_get_zone_state(reader, &snap->name,
+                        &state, ngx_cycle->log) == NGX_OK) {
+            snap->index_last_updated_at = state.last_updated_at;
         }
 
         if ((ngx_http_cache_index_lookup_zone(cache) != NULL && reader != NULL)
@@ -233,6 +249,12 @@ ngx_http_cache_pilot_write_json(u_char *p, u_char *last,
                      "\"tag\":{\"hard\":%uA,\"soft\":%uA},"
                      "\"all\":{\"hard\":%uA,\"soft\":%uA}"
                      "},"
+                     "\"purged\":{"
+                     "\"exact\":{\"hard\":%uA,\"soft\":%uA},"
+                     "\"wildcard\":{\"hard\":%uA,\"soft\":%uA},"
+                     "\"tag\":{\"hard\":%uA,\"soft\":%uA},"
+                     "\"all\":{\"hard\":%uA,\"soft\":%uA}"
+                     "},"
                      "\"key_index\":{"
                      "\"exact_fanout\":%uA,"
                      "\"wildcard_hits\":%uA"
@@ -246,6 +268,14 @@ ngx_http_cache_pilot_write_json(u_char *p, u_char *last,
                      m ? ngx_cache_pilot_metrics_read(&m->purges_tag_soft)      : (ngx_atomic_uint_t)0,
                      m ? ngx_cache_pilot_metrics_read(&m->purges_all_hard)      : (ngx_atomic_uint_t)0,
                      m ? ngx_cache_pilot_metrics_read(&m->purges_all_soft)      : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_exact_hard)   : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_exact_soft)   : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_wildcard_hard) : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_wildcard_soft) : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_tag_hard)     : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_tag_soft)     : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_all_hard)     : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_all_soft)     : (ngx_atomic_uint_t)0,
                      m ? ngx_cache_pilot_metrics_read(&m->key_index_exact_fanout)  : (ngx_atomic_uint_t)0,
                      m ? ngx_cache_pilot_metrics_read(&m->key_index_wildcard_hits) : (ngx_atomic_uint_t)0);
 
@@ -285,10 +315,14 @@ ngx_http_cache_pilot_write_json(u_char *p, u_char *last,
                              ",\"index\":{"
                              "\"state\":\"%s\","
                              "\"state_code\":%ui,"
+                             "\"max_size\":%O,"
+                             "\"last_updated_at\":%T,"
                              "\"backend\":\"%s\""
                              "}",
                              ngx_http_cache_pilot_index_state_str(s->index_state),
                              s->index_state,
+                             s->index_max_size,
+                             s->index_last_updated_at,
                              ngx_http_cache_pilot_backend_str(s->index_backend));
         }
 
@@ -344,6 +378,27 @@ ngx_http_cache_pilot_write_prometheus(u_char *p, u_char *last,
                      m ? ngx_cache_pilot_metrics_read(&m->key_index_exact_fanout)  : (ngx_atomic_uint_t)0,
                      m ? ngx_cache_pilot_metrics_read(&m->key_index_wildcard_hits) : (ngx_atomic_uint_t)0);
 
+    p = ngx_slprintf(p, last,
+                     "# HELP nginx_cache_pilot_purged_entries_total"
+                     " Total cache entries removed or expired by purge type and mode\n"
+                     "# TYPE nginx_cache_pilot_purged_entries_total counter\n"
+                     "nginx_cache_pilot_purged_entries_total{type=\"exact\",mode=\"hard\"} %uA\n"
+                     "nginx_cache_pilot_purged_entries_total{type=\"exact\",mode=\"soft\"} %uA\n"
+                     "nginx_cache_pilot_purged_entries_total{type=\"wildcard\",mode=\"hard\"} %uA\n"
+                     "nginx_cache_pilot_purged_entries_total{type=\"wildcard\",mode=\"soft\"} %uA\n"
+                     "nginx_cache_pilot_purged_entries_total{type=\"tag\",mode=\"hard\"} %uA\n"
+                     "nginx_cache_pilot_purged_entries_total{type=\"tag\",mode=\"soft\"} %uA\n"
+                     "nginx_cache_pilot_purged_entries_total{type=\"all\",mode=\"hard\"} %uA\n"
+                     "nginx_cache_pilot_purged_entries_total{type=\"all\",mode=\"soft\"} %uA\n",
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_exact_hard) : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_exact_soft) : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_wildcard_hard) : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_wildcard_soft) : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_tag_hard) : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_tag_soft) : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_all_hard) : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_all_soft) : (ngx_atomic_uint_t)0);
+
     /* Zone size */
     p = ngx_slprintf(p, last,
                      "# HELP nginx_cache_pilot_zone_size_bytes"
@@ -356,7 +411,7 @@ ngx_http_cache_pilot_write_prometheus(u_char *p, u_char *last,
                          &s->name, s->size);
     }
 
-    /* Zone max_size */
+    /* Cache zone max_size */
     p = ngx_slprintf(p, last,
                      "# HELP nginx_cache_pilot_zone_max_size_bytes"
                      " Configured maximum cache zone size in bytes\n"
@@ -366,6 +421,43 @@ ngx_http_cache_pilot_write_prometheus(u_char *p, u_char *last,
         p = ngx_slprintf(p, last,
                          "nginx_cache_pilot_zone_max_size_bytes{zone=\"%V\"} %O\n",
                          &s->name, s->max_size);
+    }
+
+    /* Cache index max_size */
+    for (i = 0; i < nzones; i++) {
+        s = &snaps[i];
+        if (!s->has_index) {
+            continue;
+        }
+
+        if (i == 0 || !snaps[i - 1].has_index) {
+            p = ngx_slprintf(p, last,
+                             "# HELP nginx_cache_pilot_index_max_size_bytes"
+                             " Configured maximum shared-memory cache index size in bytes\n"
+                             "# TYPE nginx_cache_pilot_index_max_size_bytes gauge\n");
+        }
+
+        p = ngx_slprintf(p, last,
+                         "nginx_cache_pilot_index_max_size_bytes{zone=\"%V\"} %O\n",
+                         &s->name, s->index_max_size);
+    }
+
+    for (i = 0; i < nzones; i++) {
+        s = &snaps[i];
+        if (!s->has_index) {
+            continue;
+        }
+
+        if (i == 0 || !snaps[i - 1].has_index) {
+            p = ngx_slprintf(p, last,
+                             "# HELP nginx_cache_pilot_index_last_updated_at_seconds"
+                             " Unix epoch timestamp of the last in-memory index update for the zone\n"
+                             "# TYPE nginx_cache_pilot_index_last_updated_at_seconds gauge\n");
+        }
+
+        p = ngx_slprintf(p, last,
+                         "nginx_cache_pilot_index_last_updated_at_seconds{zone=\"%V\"} %T\n",
+                         &s->name, s->index_last_updated_at);
     }
 
     /* Zone cold */

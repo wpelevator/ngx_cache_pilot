@@ -53,6 +53,7 @@ our $config_purge_all = <<'_EOC_';
 _EOC_
 
 worker_connections(128);
+timeout(10);
 no_shuffle();
 run_tests();
 
@@ -78,8 +79,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 2: serve from cache
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/passwd?t=soft
 --- error_code: 200
@@ -87,7 +86,6 @@ GET /proxy/passwd?t=soft
 Content-Type: text/plain
 X-Cache-Status: HIT
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -95,15 +93,12 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 3: purge without override header uses configured soft mode
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 PURGE /proxy/passwd?t=soft
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
 --- response_body_like: \{\"key\": 
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 4: < 0.8.3 or < 0.7.62
@@ -111,8 +106,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 4: next request sees expired cache entry
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/passwd?t=soft
 --- error_code: 200
@@ -120,7 +113,6 @@ GET /proxy/passwd?t=soft
 Content-Type: text/plain
 X-Cache-Status: EXPIRED
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -128,8 +120,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 5: refreshed entry returns to cache hit
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/passwd?t=soft
 --- error_code: 200
@@ -137,7 +127,6 @@ GET /proxy/passwd?t=soft
 Content-Type: text/plain
 X-Cache-Status: HIT
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -145,8 +134,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 6: prepare soft-header cache entry
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/passwd?t=soft-header
 --- error_code: 200
@@ -154,7 +141,6 @@ GET /proxy/passwd?t=soft-header
 Content-Type: text/plain
 X-Cache-Status: MISS
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -162,8 +148,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 7: explicit soft override preserves soft purge
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 PURGE /proxy/passwd?t=soft-header
 --- more_headers
@@ -172,7 +156,6 @@ X-Purge-Mode: soft
 --- response_headers
 Content-Type: application/json
 --- response_body_like: \{\"key\": 
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 4: < 0.8.3 or < 0.7.62
@@ -180,8 +163,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 8: next request after soft-purge is expired
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/passwd?t=soft-header
 --- error_code: 200
@@ -189,7 +170,6 @@ GET /proxy/passwd?t=soft-header
 Content-Type: text/plain
 X-Cache-Status: EXPIRED
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -197,8 +177,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 9: hard override removes cached entry
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 PURGE /proxy/passwd?t=soft-header
 --- more_headers
@@ -207,7 +185,6 @@ X-Purge-Mode: hard
 --- response_headers
 Content-Type: application/json
 --- response_body_like: \{\"key\": 
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 4: < 0.8.3 or < 0.7.62
@@ -215,8 +192,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 10: hard override removes the entry
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/passwd?t=soft-header
 --- error_code: 200
@@ -224,7 +199,6 @@ GET /proxy/passwd?t=soft-header
 Content-Type: text/plain
 X-Cache-Status: MISS
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -232,8 +206,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 10A: prepare entry for repeated soft purge on stale object
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/passwd?t=soft-repeat
 --- error_code: 200
@@ -241,7 +213,6 @@ GET /proxy/passwd?t=soft-repeat
 Content-Type: text/plain
 X-Cache-Status: MISS
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -249,15 +220,12 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 10B: first soft purge marks entry stale
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 PURGE /proxy/passwd?t=soft-repeat
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
 --- response_body_like: \{\"key\": 
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 4: < 0.8.3 or < 0.7.62
@@ -265,15 +233,12 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 10C: second soft purge on stale entry does not stall cache updating
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 PURGE /proxy/passwd?t=soft-repeat
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
 --- response_body_like: \{\"key\": 
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 4: < 0.8.3 or < 0.7.62
@@ -281,8 +246,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 10D: hard purge on stale entry also clears update ownership
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 PURGE /proxy/passwd?t=soft-repeat
 --- more_headers
@@ -291,7 +254,6 @@ X-Purge-Mode: hard
 --- response_headers
 Content-Type: application/json
 --- response_body_like: \{\"key\": 
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 4: < 0.8.3 or < 0.7.62
@@ -299,8 +261,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 11: prepare first wildcard match
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/passwd?t=wild
 --- error_code: 200
@@ -308,7 +268,6 @@ GET /proxy/passwd?t=wild
 Content-Type: text/plain
 X-Cache-Status: MISS
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -316,8 +275,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 12: prepare second wildcard match
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/passwd2?t=wild
 --- error_code: 200
@@ -325,7 +282,6 @@ GET /proxy/passwd2?t=wild
 Content-Type: text/plain
 X-Cache-Status: MISS
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -333,8 +289,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 13: prepare unrelated cache entry
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/shadow?t=wild
 --- error_code: 200
@@ -342,7 +296,6 @@ GET /proxy/shadow?t=wild
 Content-Type: text/plain
 X-Cache-Status: MISS
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -350,15 +303,12 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 14: headerless wildcard purge uses configured soft mode
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 PURGE /proxy/pass*
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
 --- response_body_like: \{\"key\": 
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 4: < 0.8.3 or < 0.7.62
@@ -366,8 +316,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 15: first wildcard target is expired
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/passwd?t=wild
 --- error_code: 200
@@ -375,7 +323,6 @@ GET /proxy/passwd?t=wild
 Content-Type: text/plain
 X-Cache-Status: EXPIRED
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -383,8 +330,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 16: second wildcard target is expired
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/passwd2?t=wild
 --- error_code: 200
@@ -392,7 +337,6 @@ GET /proxy/passwd2?t=wild
 Content-Type: text/plain
 X-Cache-Status: EXPIRED
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -400,8 +344,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 17: unrelated entry remains a cache hit
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/shadow?t=wild
 --- error_code: 200
@@ -409,7 +351,6 @@ GET /proxy/shadow?t=wild
 Content-Type: text/plain
 X-Cache-Status: HIT
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -417,8 +358,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 18: prepare first soft wildcard target
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/pass-soft-1
 --- error_code: 200
@@ -426,7 +365,6 @@ GET /proxy/pass-soft-1
 Content-Type: text/plain
 X-Cache-Status: MISS
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -434,8 +372,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 19: prepare second soft wildcard target
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/pass-soft-2
 --- error_code: 200
@@ -443,7 +379,6 @@ GET /proxy/pass-soft-2
 Content-Type: text/plain
 X-Cache-Status: MISS
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -451,8 +386,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 20: explicit soft override on wildcard entries succeeds
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 PURGE /proxy/pass-soft-*
 --- more_headers
@@ -461,7 +394,6 @@ X-Purge-Mode: soft
 --- response_headers
 Content-Type: application/json
 --- response_body_like: \{\"key\": 
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 4: < 0.8.3 or < 0.7.62
@@ -469,8 +401,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 21: first soft wildcard target becomes expired
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/pass-soft-1
 --- error_code: 200
@@ -478,7 +408,6 @@ GET /proxy/pass-soft-1
 Content-Type: text/plain
 X-Cache-Status: EXPIRED
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -486,8 +415,6 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 === TEST 22: second soft wildcard target becomes expired
---- http_config eval: $::http_config
---- config eval: $::config
 --- request
 GET /proxy/pass-soft-2
 --- error_code: 200
@@ -495,7 +422,6 @@ GET /proxy/pass-soft-2
 Content-Type: text/plain
 X-Cache-Status: EXPIRED
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -529,7 +455,6 @@ GET /proxy/shadow?t=all
 Content-Type: text/plain
 X-Cache-Status: MISS
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -547,7 +472,6 @@ X-Purge-Mode: hard
 --- response_headers
 Content-Type: application/json
 --- response_body_like: \{\"key\": 
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 4: < 0.8.3 or < 0.7.62
@@ -564,7 +488,6 @@ GET /proxy/passwd?t=all
 Content-Type: text/plain
 X-Cache-Status: EXPIRED
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62
@@ -581,7 +504,6 @@ GET /proxy/shadow?t=all
 Content-Type: text/plain
 X-Cache-Status: EXPIRED
 --- response_body_like: root
---- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 --- skip_nginx2: 5: < 0.8.3 or < 0.7.62

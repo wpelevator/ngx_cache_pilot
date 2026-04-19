@@ -63,6 +63,13 @@ typedef enum {
 } ngx_http_cache_pilot_purge_path_e;
 
 typedef enum {
+    NGX_HTTP_CACHE_PILOT_PURGE_STATS_EXACT = 0,
+    NGX_HTTP_CACHE_PILOT_PURGE_STATS_WILDCARD,
+    NGX_HTTP_CACHE_PILOT_PURGE_STATS_TAG,
+    NGX_HTTP_CACHE_PILOT_PURGE_STATS_ALL
+} ngx_http_cache_pilot_purge_stats_e;
+
+typedef enum {
     NGX_HTTP_CACHE_TAG_BACKEND_NONE = 0,
     NGX_HTTP_CACHE_TAG_BACKEND_SHM
 } ngx_http_cache_index_backend_e;
@@ -105,6 +112,7 @@ struct ngx_http_cache_index_zone_s {
 typedef struct {
     ngx_flag_t                    bootstrap_complete;
     time_t                        last_bootstrap_at;
+    time_t                        last_updated_at;
 } ngx_http_cache_index_zone_state_t;
 
 typedef struct {
@@ -112,6 +120,7 @@ typedef struct {
     ngx_http_cache_index_zone_t    *zone;
     ngx_flag_t                    bootstrap_complete;
     time_t                        last_bootstrap_at;
+    time_t                        last_updated_at;
 } ngx_http_cache_index_zone_index_t;
 
 typedef struct ngx_http_cache_index_watch_s {
@@ -170,6 +179,9 @@ ngx_flag_t ngx_http_cache_index_location_enabled(
     ngx_http_cache_pilot_loc_conf_t *cplcf);
 void ngx_http_cache_pilot_set_response_path(ngx_http_request_t *r,
         ngx_http_cache_pilot_purge_path_e purge_path);
+void ngx_http_cache_pilot_record_response_purge(ngx_http_request_t *r,
+        ngx_http_cache_pilot_purge_stats_e purge_type, ngx_flag_t soft,
+        ngx_uint_t count);
 ngx_int_t ngx_http_cache_index_request_headers(ngx_http_request_t *r,
         ngx_array_t **tags);
 ngx_int_t ngx_http_cache_index_extract_tokens(ngx_pool_t *pool, u_char *value,

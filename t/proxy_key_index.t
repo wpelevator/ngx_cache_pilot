@@ -204,7 +204,7 @@ GET /_stats
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
---- response_body_like: (?s)"key_cache_test":\{.*"index":\{"state":"ready","state_code":2,"backend":"shm"
+--- response_body_like: (?s)"key_cache_test":\{.*"index":\{"state":"ready","state_code":2,"max_size":33554432,[^}]*"backend":"shm"
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
@@ -331,7 +331,11 @@ GET /_stats
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
---- response_body_like: (?s)"key_index":\{[^}]*"exact_fanout":
+--- response_body_like eval
+[
+    '(?s)"key_index":\{[^}]*"exact_fanout":',
+    '"index":\{"state":"ready","state_code":2,"max_size":33554432,[^}]*"backend":"shm"',
+]
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
@@ -505,7 +509,7 @@ PURGE /proxy_json/vary
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
---- response_body_like: ^\{\"key\": \"\/proxy_json\/vary\", \"cache_pilot\": \{\"purge_path\": \"exact-key-fanout\"\}\}$
+--- response_body_like: ^\{\"key\": \"\/proxy_json\/vary\", \"cache_pilot\": \{\"purge_path\": \"exact-key-fanout\", \"purged\": \{\"exact\": \{\"hard\": 2, \"soft\": 0\}, \"wildcard\": \{\"hard\": 0, \"soft\": 0\}, \"tag\": \{\"hard\": 0, \"soft\": 0\}, \"all\": \{\"hard\": 0, \"soft\": 0\}\}\}\}$
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
@@ -584,7 +588,7 @@ PURGE /proxy_json/prefix-*
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
---- response_body_like: ^\{\"key\": \"\/proxy_json\/prefix-\*\", \"cache_pilot\": \{\"purge_path\": \"key-prefix-index\"\}\}$
+--- response_body_like: ^\{\"key\": \"\/proxy_json\/prefix-\*\", \"cache_pilot\": \{\"purge_path\": \"key-prefix-index\", \"purged\": \{\"exact\": \{\"hard\": 0, \"soft\": 0\}, \"wildcard\": \{\"hard\": 2, \"soft\": 0\}, \"tag\": \{\"hard\": 0, \"soft\": 0\}, \"all\": \{\"hard\": 0, \"soft\": 0\}\}\}\}$
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/

@@ -105,7 +105,7 @@ GET /_stats?format=json
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
---- response_body_like: "zones"
+--- response_body_like: "zones".*"last_updated_at"
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
@@ -150,7 +150,7 @@ GET /_stats
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
---- response_body_like: "purges".*"exact".*"wildcard".*"tag".*"all"
+--- response_body_like: "purges".*"exact".*"wildcard".*"tag".*"all".*"purged".*"exact".*"hard".*"soft".*"wildcard".*"tag".*"all"
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
@@ -193,7 +193,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 [
     'root',
     '{"key": ',
-    '"exact":\{"hard":[1-9]',
+    '"exact":\{"hard":[1-9].*"purged":\{"exact":\{"hard":[1-9][0-9]*,"soft":0\},"wildcard":\{"hard":0,"soft":0\},"tag":\{"hard":0,"soft":0\},"all":\{"hard":0,"soft":0\}\}',
 ]
 --- timeout: 10
 --- no_error_log eval
@@ -209,7 +209,7 @@ GET /_stats?format=prometheus
 --- error_code: 200
 --- response_headers
 Content-Type: text/plain; version=0.0.4; charset=utf-8
---- response_body_like: zone="stats_test"
+--- response_body_like: nginx_cache_pilot_purged_entries_total\{type="exact",mode="hard"\}
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/

@@ -72,6 +72,8 @@ static u_char *ngx_http_cache_index_store_shm_file_key(
 static u_char *ngx_http_cache_index_store_shm_file_tag_at(
     ngx_http_cache_index_shm_file_t *file, ngx_uint_t index,
     size_t *len);
+static void ngx_http_cache_index_store_shm_touch_zone_locked(
+    ngx_http_cache_index_shm_zone_t *zone);
 
 static ngx_http_cache_index_store_ops_t ngx_http_cache_index_store_shm_ops = {
     ngx_http_cache_index_store_shm_close,
@@ -579,6 +581,12 @@ ngx_http_cache_index_store_shm_file_tag_at(ngx_http_cache_index_shm_file_t *file
     return NULL;
 }
 
+static void
+ngx_http_cache_index_store_shm_touch_zone_locked(
+    ngx_http_cache_index_shm_zone_t *zone) {
+    zone->last_updated_at = ngx_time();
+}
+
 static ngx_int_t
 ngx_http_cache_index_store_shm_upsert_file_meta(ngx_http_cache_index_store_t *store,
         ngx_str_t *zone_name, ngx_str_t *path, ngx_str_t *cache_key_text,
@@ -661,6 +669,7 @@ ngx_http_cache_index_store_shm_upsert_file_meta(ngx_http_cache_index_store_t *st
     }
 
     ngx_queue_insert_tail(&zone->files, &file->queue);
+    ngx_http_cache_index_store_shm_touch_zone_locked(zone);
 
     if (locked) {
         ngx_shmtx_unlock(&ctx->shpool->mutex);
@@ -692,6 +701,7 @@ ngx_http_cache_index_store_shm_delete_file(ngx_http_cache_index_store_t *store,
         file = ngx_http_cache_index_store_shm_lookup_file(zone, path);
         if (file != NULL) {
             ngx_http_cache_index_store_shm_remove_file_locked(ctx, zone, file);
+            ngx_http_cache_index_store_shm_touch_zone_locked(zone);
         }
     }
 
@@ -911,6 +921,7 @@ ngx_http_cache_index_store_shm_get_zone_state(ngx_http_cache_index_store_t *stor
 
     state->bootstrap_complete = 0;
     state->last_bootstrap_at = 0;
+    state->last_updated_at = 0;
 
     ctx = store->u.shm.ctx;
     ngx_shmtx_lock(&ctx->shpool->mutex);
@@ -918,6 +929,7 @@ ngx_http_cache_index_store_shm_get_zone_state(ngx_http_cache_index_store_t *stor
     if (zone != NULL) {
         state->bootstrap_complete = zone->bootstrap_complete;
         state->last_bootstrap_at = zone->last_bootstrap_at;
+        state->last_updated_at = zone->last_updated_at;
     }
     ngx_shmtx_unlock(&ctx->shpool->mutex);
 
@@ -951,6 +963,7 @@ ngx_http_cache_index_store_shm_set_zone_state(ngx_http_cache_index_store_t *stor
 
     zone->bootstrap_complete = state->bootstrap_complete;
     zone->last_bootstrap_at = state->last_bootstrap_at;
+    zone->last_updated_at = state->last_updated_at;
 
     if (locked) {
         ngx_shmtx_unlock(&ctx->shpool->mutex);
