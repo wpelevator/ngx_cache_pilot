@@ -302,6 +302,8 @@ If configured:
 
 Enable cache-tag indexing backed by SQLite or Redis. This feature is currently Linux-only. SQLite requires a writable database path. Redis currently supports a single instance over `host:port` or `unix:/path`, with optional `db=<n>` and `password=<secret>`, but no TLS, Sentinel, or Cluster support.
 
+The SQLite database is opened and initialized by the runtime worker that owns index writes. `nginx -t` validates the configured path but does not create or migrate the database file.
+
 This backend also stores cache-key metadata used by key-based purge acceleration:
 
 - exact-key hard purge fanout across sibling files sharing one cache key
@@ -685,7 +687,34 @@ Results are written under `bench/results/<timestamp>/` with one JSON file per sc
 
 The benchmark suite uses `bench/nginx.conf` for SQLite-backed scenarios and `bench/nginx_redis.conf` for the Redis-backed scenario. If more benchmark layouts are added later, drop another `*.conf` template into `bench/`, assign scenarios to it in `bench/bench.pl`, and the runner will restart nginx when either the template or backend changes. You can also override the template for a whole run with `--config-template <name-or-path>`.
 
-`bench/bench.pl` can also fail the run on threshold regressions with `--assert-file <path>`. The assertion file is JSON with optional `defaults` and per-scenario rules under `scenarios`, keyed by the scenario ids `exact`, `wild`, `tag-sqlite`, and `tag-redis`. Metrics use dot-paths into the summary object, for example `get.rps`, `get.cache_hit_rate`, `get.latency_us.p95`, and `purge.rps`. Each rule supports `min` and/or `max`. See `bench/assertions.example.json` for a concrete example.
+`bench/bench.pl` can also fail the run on threshold regressions with `--assert-file <path>`. The default assertion file is JSON with optional `defaults` and per-scenario rules under `scenarios`, keyed by the stable scenario ids `exact`, `wild`, `tag-sqlite`, and `tag-redis`. Metrics use dot-paths into the summary object, for example `get.rps`, `get.cache_hit_rate`, `get.latency_us.p95`, and `purge.rps`. Each rule supports `min` and/or `max`. See `bench/assertions.example.json` for the default suite and `bench/assertions.isolated.example.json` for the isolated index scenarios.
+
+#### Isolated Index Benchmarks
+
+The harness also includes three index-focused scenarios that are not part of the default run:
+
+- exact-key soft purge with key-index readiness checks (`exact-indexed`)
+- exact-key soft purge with `Vary` fanout over `X-Variant: a|b|c` (`exact-fanout`)
+- wildcard soft purge with key-index assist preflight (`wild-indexed`)
+
+They are isolated on purpose. The default suite stays focused on the stable four-scenario baseline, while the isolated set uses dedicated templates and richer index diagnostics for feature validation or agent-driven investigation.
+
+Run the isolated set inside the development container after building nginx:
+
+```bash
+make shell
+make nginx-build
+perl ./bench/bench.pl --quick --port 18080 --out-dir ./bench/results --scenario-set isolated
+cat /workspace/bench/results/latest/summary.txt
+```
+
+To target one or more isolated scenarios directly, keep using `--scenarios` as the most specific selector:
+
+```bash
+perl ./bench/bench.pl --quick --port 18080 --out-dir ./bench/results --scenarios exact-indexed,wild-indexed
+```
+
+These runs use `bench/nginx_indexed.conf` for `exact-indexed` and `wild-indexed`, and `bench/nginx_fanout.conf` for `exact-fanout`. When any selected scenario enables index tracking, `summary.txt` adds `IdxPlan` and `IdxSeen` columns and the per-scenario JSON artifacts include the matching `index_plan` and `index_report` data. The default suite keeps the simpler summary table.
 
 ### Docker Validation Config
 
