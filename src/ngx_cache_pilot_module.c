@@ -99,20 +99,29 @@ char        *ngx_http_cache_pilot_mode_header_conf(ngx_conf_t *cf,
 char        *ngx_http_cache_pilot_stats_conf(ngx_conf_t *cf,
         ngx_command_t *cmd, void *conf);
 static ngx_int_t
-ngx_http_cache_pilot_record_purged_tag(ngx_http_request_t *r, ngx_uint_t count);
+ngx_http_cache_pilot_file_cache_noop(ngx_tree_ctx_t *ctx, ngx_str_t *path);
 static ngx_int_t
 ngx_http_cache_pilot_file_cache_delete_file(ngx_tree_ctx_t *ctx, ngx_str_t *path);
-    ngx_int_t  rc;
-
-    rc = ngx_http_cache_pilot_soft_path(data->cache, path, ctx->log);
-    if (rc == NGX_OK) {
+static ngx_int_t
+ngx_http_cache_pilot_file_cache_delete_partial_file(ngx_tree_ctx_t *ctx,
+        ngx_str_t *path);
 static ngx_int_t
 ngx_http_cache_pilot_file_cache_soft_file(ngx_tree_ctx_t *ctx, ngx_str_t *path);
 static ngx_int_t
-ngx_http_cache_pilot_file_cache_soft_partial_file(ngx_tree_ctx_t *ctx, ngx_str_t *path);
-    return rc;
+ngx_http_cache_pilot_file_cache_soft_partial_file(ngx_tree_ctx_t *ctx,
+        ngx_str_t *path);
+static ngx_int_t
 ngx_http_cache_pilot_soft_path(ngx_http_file_cache_t *cache, ngx_str_t *path,
                                ngx_log_t *log);
+static void
+ngx_http_cache_pilot_release_updating(ngx_http_cache_t *c);
+static ngx_http_file_cache_node_t *
+ngx_http_cache_pilot_lookup(ngx_http_file_cache_t *cache, u_char *key);
+static ngx_int_t
+ngx_http_cache_pilot_filename_key(ngx_str_t *path, u_char *key);
+static ngx_int_t
+ngx_http_cache_pilot_partial_match(ngx_http_cache_pilot_partial_ctx_t *data,
+                                   ngx_str_t *path, ngx_log_t *log);
 static ngx_int_t
 ngx_http_cache_pilot_key_index_ready(ngx_http_request_t *r,
                                      ngx_http_file_cache_t *cache,
@@ -1815,7 +1824,6 @@ ngx_http_cache_pilot_record_purged_key(ngx_http_request_t *r, ngx_uint_t count) 
     ctx->purged_by_key += count;
 }
 
-static void
 static ngx_http_cache_pilot_request_ctx_t *
 ngx_http_cache_pilot_get_request_ctx(ngx_http_request_t *r) {
     ngx_http_cache_pilot_request_ctx_t  *ctx;
