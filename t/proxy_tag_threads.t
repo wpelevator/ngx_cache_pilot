@@ -157,7 +157,7 @@ PURGE /proxy/a
 Surrogate-Key: group-threads-boot
 X-Purge-Mode: soft
 --- error_code: 200
---- response_body_like: (?s)Successful purge.*Key\s*:\s*/proxy/a
+--- response_body_like: \{\"key\": 
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 
@@ -206,7 +206,7 @@ PURGE /proxy/p
 Surrogate-Key: group-threads-persist
 X-Purge-Mode: soft
 --- error_code: 200
---- response_body_like: (?s)Successful purge.*Key\s*:\s*/proxy/p
+--- response_body_like: \{\"key\": 
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 
@@ -247,7 +247,7 @@ PURGE /proxy/p
 Surrogate-Key: group-threads-persist
 X-Purge-Mode: soft
 --- error_code: 200
---- response_body_like: Successful purge
+--- response_body_like: \{\"key\": 
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
 

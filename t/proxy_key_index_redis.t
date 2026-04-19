@@ -127,12 +127,12 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 [200, 200]
 --- response_headers eval
 [
-    'Content-Type: text/html',
+    'Content-Type: application/json',
     'Content-Type: application/json',
 ]
 --- response_body_like eval
 [
-    'Successful purge',
+    '{"key": ',
     '(?s)"key_index":\{[^}]*"wildcard_hits":[1-9].*"key_cache_redis_test":\{.*"index":\{"state":"ready","state_code":2,"backend":"redis"',
 ]
 --- timeout: 10

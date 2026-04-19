@@ -155,8 +155,8 @@ X-Variant: a
 PURGE /proxy/vary
 --- error_code: 200
 --- response_headers
-Content-Type: text/html
---- response_body_like: Successful purge
+Content-Type: application/json
+--- response_body_like: \{\"key\": 
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
@@ -221,8 +221,8 @@ X-Purge-Mode: soft
 PURGE /proxy/prefix-a
 --- error_code: 200
 --- response_headers
-Content-Type: text/html
---- response_body_like: Successful purge
+Content-Type: application/json
+--- response_body_like: \{\"key\": 
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
@@ -276,12 +276,12 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 [200, 200]
 --- response_headers eval
 [
-    'Content-Type: text/html',
+    'Content-Type: application/json',
     'Content-Type: application/json',
 ]
 --- response_body_like eval
 [
-    'Successful purge',
+    '{"key": ',
     '(?s)"key_index":\{[^}]*"exact_fanout":[1-9]',
 ]
 --- timeout: 10
@@ -349,8 +349,8 @@ X-Variant: a
 PURGE /proxy/vary
 --- error_code: 200
 --- response_headers
-Content-Type: text/html
---- response_body_like: Successful purge
+Content-Type: application/json
+--- response_body_like: \{\"key\": 
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
@@ -403,12 +403,12 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 [200, 200]
 --- response_headers eval
 [
-    'Content-Type: text/html',
+    'Content-Type: application/json',
     'Content-Type: application/json',
 ]
 --- response_body_like eval
 [
-    'Successful purge',
+    '{"key": ',
     '(?s)"key_index":\{[^}]*"wildcard_hits":[1-9]',
 ]
 --- timeout: 10
