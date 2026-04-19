@@ -41,7 +41,7 @@ die "--count must be > 0\n" unless $options{count} > 0;
 die "--concurrency must be > 0\n" unless $options{concurrency} > 0;
 
 my $duration = $options{quick} ? 15 : 60;
-my $index_probe_timeout_s = 5;
+my $index_probe_timeout_s = 15;
 my $scenario_ready_timeout_s = 10;
 my $perl = $^X;
 my $nginx = '/opt/nginx/sbin/nginx';
@@ -141,6 +141,8 @@ my @all_scenarios = (
         index_tracking_mode => 'exact_fanout',
         vary_header => 'X-Bench-Variant',
         vary_values => [qw(a b c)],
+        purge_header => 'X-Bench-Variant',
+        purge_header_value => 'a',
     },
     {
         key        => 'wild-scan',
@@ -375,6 +377,11 @@ sub run_scenario {
     wait_for_scenario_ready($scenario, $stats_endpoint, $scenario_ready_timeout_s);
     log_info("Warming cache for $scenario->{name}");
     warm_cache($scenario->{prefix}, $options{count}, $scenario);
+
+    if (($scenario->{index_tracking_mode} || '') eq 'wildcard_prefix') {
+        sleep(1.0);
+    }
+
     $probe_report = ensure_index_probe_ready($scenario, $stats_endpoint,
                                              $index_probe_timeout_s);
 
