@@ -29,6 +29,7 @@ struct ngx_http_cache_index_shm_zone_s {
     ngx_queue_t                    files;
     ngx_flag_t                     bootstrap_complete;
     time_t                         last_bootstrap_at;
+    time_t                         last_updated_at;
     size_t                         name_len;
     u_char                         name[1];
 };

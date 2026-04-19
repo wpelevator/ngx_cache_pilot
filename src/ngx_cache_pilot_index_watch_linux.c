@@ -105,6 +105,7 @@ ngx_http_cache_index_zone_bootstrap_complete_sync(
 
     state.bootstrap_complete = 0;
     state.last_bootstrap_at = 0;
+    state.last_updated_at = 0;
 
     if (ngx_http_cache_index_store_get_zone_state(reader, &zone->zone_name,
             &state, log) != NGX_OK) {
@@ -128,6 +129,7 @@ ngx_http_cache_index_bootstrap_zone(ngx_http_cache_index_store_t *store,
 
     state.bootstrap_complete = 1;
     state.last_bootstrap_at = ngx_time();
+    state.last_updated_at = state.last_bootstrap_at;
     if (ngx_http_cache_index_store_set_zone_state(store, &zone->zone_name, &state,
             cycle->log) != NGX_OK) {
         return NGX_ERROR;
@@ -1171,6 +1173,7 @@ ngx_http_cache_index_runtime_init_zones(ngx_cycle_t *cycle,
         index->zone = &zone[i];
         index->bootstrap_complete = 0;
         index->last_bootstrap_at = 0;
+        index->last_updated_at = 0;
         index->node.key = (ngx_rbtree_key_t)(uintptr_t) zone[i].cache;
         ngx_rbtree_insert(&ngx_http_cache_index_watch_runtime.zone_index,
                           &index->node);
@@ -1304,6 +1307,7 @@ ngx_http_cache_index_zone_state_cache_set(ngx_http_file_cache_t *cache,
 
     index->bootstrap_complete = state->bootstrap_complete;
     index->last_bootstrap_at = state->last_bootstrap_at;
+    index->last_updated_at = state->last_updated_at;
 }
 
 static ngx_int_t
@@ -1328,6 +1332,7 @@ ngx_http_cache_index_zone_state_cache_sync(ngx_cycle_t *cycle,
 
         state.bootstrap_complete = 0;
         state.last_bootstrap_at = 0;
+        state.last_updated_at = 0;
 
         for (i = 0; i < pmcf->zones->nelts; i++) {
             if (zone[i].cache == NULL) {
@@ -1347,6 +1352,7 @@ ngx_http_cache_index_zone_state_cache_sync(ngx_cycle_t *cycle,
 
         state.bootstrap_complete = 0;
         state.last_bootstrap_at = 0;
+        state.last_updated_at = 0;
         if (ngx_http_cache_index_store_get_zone_state(reader, &zone[i].zone_name,
                 &state, cycle->log) != NGX_OK) {
             /* Store unavailable at startup.
@@ -1358,6 +1364,7 @@ ngx_http_cache_index_zone_state_cache_sync(ngx_cycle_t *cycle,
                           "assuming not bootstrapped", &zone[i].zone_name);
             state.bootstrap_complete = 0;
             state.last_bootstrap_at = 0;
+            state.last_updated_at = 0;
         }
 
         ngx_http_cache_index_zone_state_cache_set(zone[i].cache, &state);

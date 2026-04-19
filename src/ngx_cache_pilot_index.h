@@ -105,6 +105,7 @@ struct ngx_http_cache_index_zone_s {
 typedef struct {
     ngx_flag_t                    bootstrap_complete;
     time_t                        last_bootstrap_at;
+    time_t                        last_updated_at;
 } ngx_http_cache_index_zone_state_t;
 
 typedef struct {
@@ -112,6 +113,7 @@ typedef struct {
     ngx_http_cache_index_zone_t    *zone;
     ngx_flag_t                    bootstrap_complete;
     time_t                        last_bootstrap_at;
+    time_t                        last_updated_at;
 } ngx_http_cache_index_zone_index_t;
 
 typedef struct ngx_http_cache_index_watch_s {

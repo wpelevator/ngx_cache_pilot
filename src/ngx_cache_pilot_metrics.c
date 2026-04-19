@@ -24,6 +24,7 @@ typedef struct {
     ngx_uint_t index_state;
     ngx_uint_t has_index;
     ngx_uint_t index_backend;      /* NGX_HTTP_CACHE_TAG_BACKEND_* */
+    time_t     index_last_updated_at;
 } ngx_http_cache_pilot_zone_snapshot_t;
 
 
@@ -75,6 +76,7 @@ ngx_http_cache_pilot_snapshot_zone(ngx_http_cache_pilot_stat_zone_t *sz,
     ngx_http_file_cache_t *cache;
 #if (NGX_LINUX)
     ngx_http_cache_index_store_t     *reader;
+    ngx_http_cache_index_zone_state_t state;
 #endif
 
     cache = sz->cache;
@@ -104,6 +106,7 @@ ngx_http_cache_pilot_snapshot_zone(ngx_http_cache_pilot_stat_zone_t *sz,
     snap->index_state    = NGX_CACHE_PILOT_INDEX_STATE_DISABLED;
     snap->has_index      = 0;
     snap->index_backend  = 0;
+    snap->index_last_updated_at = 0;
 
 #if (NGX_LINUX)
     if (ngx_http_cache_index_store_configured(pmcf)) {
@@ -115,6 +118,16 @@ ngx_http_cache_pilot_snapshot_zone(ngx_http_cache_pilot_stat_zone_t *sz,
         reader = ngx_http_cache_index_store_reader(pmcf, ngx_cycle->log);
         if (reader == NULL && ngx_http_cache_index_is_owner()) {
             reader = ngx_http_cache_index_store_writer();
+        }
+
+        state.bootstrap_complete = 0;
+        state.last_bootstrap_at = 0;
+        state.last_updated_at = 0;
+
+        if (reader != NULL
+                && ngx_http_cache_index_store_get_zone_state(reader, &snap->name,
+                        &state, ngx_cycle->log) == NGX_OK) {
+            snap->index_last_updated_at = state.last_updated_at;
         }
 
         if ((ngx_http_cache_index_lookup_zone(cache) != NULL && reader != NULL)
@@ -289,11 +302,13 @@ ngx_http_cache_pilot_write_json(u_char *p, u_char *last,
                              "\"state\":\"%s\","
                              "\"state_code\":%ui,"
                              "\"max_size\":%O,"
+                             "\"last_updated_at\":%T,"
                              "\"backend\":\"%s\""
                              "}",
                              ngx_http_cache_pilot_index_state_str(s->index_state),
                              s->index_state,
                              s->index_max_size,
+                             s->index_last_updated_at,
                              ngx_http_cache_pilot_backend_str(s->index_backend));
         }
 
@@ -390,6 +405,24 @@ ngx_http_cache_pilot_write_prometheus(u_char *p, u_char *last,
         p = ngx_slprintf(p, last,
                          "nginx_cache_pilot_index_max_size_bytes{zone=\"%V\"} %O\n",
                          &s->name, s->index_max_size);
+    }
+
+    for (i = 0; i < nzones; i++) {
+        s = &snaps[i];
+        if (!s->has_index) {
+            continue;
+        }
+
+        if (i == 0 || !snaps[i - 1].has_index) {
+            p = ngx_slprintf(p, last,
+                             "# HELP nginx_cache_pilot_index_last_updated_at_seconds"
+                             " Unix epoch timestamp of the last in-memory index update for the zone\n"
+                             "# TYPE nginx_cache_pilot_index_last_updated_at_seconds gauge\n");
+        }
+
+        p = ngx_slprintf(p, last,
+                         "nginx_cache_pilot_index_last_updated_at_seconds{zone=\"%V\"} %T\n",
+                         &s->name, s->index_last_updated_at);
     }
 
     /* Zone cold */
