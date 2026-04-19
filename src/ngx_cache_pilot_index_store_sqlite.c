@@ -573,9 +573,7 @@ ngx_http_cache_index_store_sqlite_collect_paths_by_key_prefix(
     ngx_str_t *prefix, ngx_array_t **paths, ngx_log_t *log) {
     ngx_array_t    *result;
     ngx_str_t      *path;
-    ngx_str_t       upper;
     const u_char   *text;
-    u_char         *upper_buf;
     size_t          len;
     int             rc;
     sqlite3_stmt   *stmt;
@@ -591,26 +589,12 @@ ngx_http_cache_index_store_sqlite_collect_paths_by_key_prefix(
         return NGX_OK;
     }
 
-    /* Upper bound: prefix + '\xff' matches all strings with this prefix */
-    upper_buf = ngx_pnalloc(pool, prefix->len + 2);
-    if (upper_buf == NULL) {
-        return NGX_ERROR;
-    }
-
-    ngx_memcpy(upper_buf, prefix->data, prefix->len);
-    upper_buf[prefix->len]     = '\xff';
-    upper_buf[prefix->len + 1] = '\0';
-    upper.data = upper_buf;
-    upper.len  = prefix->len + 1;
-
     stmt = store->u.sqlite.stmt.collect_paths_by_key_prefix;
     sqlite3_reset(stmt);
     sqlite3_clear_bindings(stmt);
     sqlite3_bind_text(stmt, 1, (const char *) zone_name->data, zone_name->len,
                       SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 2, (const char *) prefix->data, prefix->len,
-                      SQLITE_TRANSIENT);
-    sqlite3_bind_text(stmt, 3, (const char *) upper.data, upper.len,
                       SQLITE_TRANSIENT);
 
     while ((rc = ngx_http_cache_index_store_sqlite_step(stmt, store->u.sqlite.db,
@@ -854,7 +838,7 @@ ngx_http_cache_index_store_sqlite_prepare(ngx_http_cache_index_store_t *store,
     if (ngx_http_cache_index_store_sqlite_prepare_one(store->u.sqlite.db,
             &store->u.sqlite.stmt.collect_paths_by_key_prefix,
             "SELECT path FROM cache_file_meta WHERE zone = ?1 "
-            "AND cache_key_text >= ?2 AND cache_key_text < ?3",
+            "AND substr(cache_key_text, 1, length(?2)) = ?2",
             log) != NGX_OK) {
         return NGX_ERROR;
     }
