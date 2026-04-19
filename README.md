@@ -15,7 +15,7 @@ This is a fork of the [`ngx_cache_purge` module](https://github.com/nginx-module
 
 - cache-tag indexing currently requires Linux
 - cache-tag and cache-key indexing use an in-memory shared-memory zone configured with `cache_pilot_index_zone_size`
-- index contents are rebuilt from cache files after a cold restart; they are not persisted across process lifetime
+- index contents are rebuilt from cache files after a cold restart; they do not survive nginx process restarts
 - `--with-threads` is strongly recommended so startup bootstrap and wildcard purge scans do not block the nginx event loop
 
 ## Installation Instructions
@@ -283,7 +283,9 @@ Set the response type returned after a purge.
 When `json` is selected, successful purges may also include `cache_pilot.purge_path`
 to describe the request path that completed the purge, for example
 `filesystem-fallback`, `key-prefix-index`, `reused-persisted-index`,
-`bootstrapped-on-demand`, or `exact-key-fanout`. Text responses keep the
+`bootstrapped-on-demand`, or `exact-key-fanout`. Here, `reused-persisted-index`
+means the request reused shared-memory index state that was already built for
+the current nginx lifetime; it does not imply on-disk persistence. Text responses keep the
 existing plain body format.
 
 #### `cache_pilot_purge_mode_header`
@@ -309,7 +311,9 @@ If configured:
 
 Allocate the shared-memory zone used for cache-tag indexing and cache-key metadata. This feature is currently Linux-only.
 
-The index is process-local shared state managed by nginx workers. It is rebuilt from cache files after a cold restart and does not persist across process lifetimes.
+The index is process-local shared state managed by nginx workers. It is rebuilt from cache files after a cold restart and does not survive nginx process restarts.
+
+In practice, the zone survives worker reuse within the same running nginx instance, but it is rebuilt after a full process restart.
 
 This zone also stores cache-key metadata used by key-based purge acceleration:
 
@@ -492,7 +496,7 @@ If a watched purge location receives a plain `PURGE` request without any of the 
 
 For tag-based purges, the configured `cache_pilot_purge_mode_header` can switch a request between soft and hard purge. Without that header, the configured purge mode is used.
 
-Hard tag purges use asynchronous owner-worker handoff for backend index deletes. A `200` response means the delete work was accepted for processing, not necessarily already persisted yet.
+Hard tag purges use asynchronous owner-worker handoff for backend index deletes. A `200` response means the delete work was accepted for processing, not necessarily already applied to the in-memory index yet.
 
 Transient index-maintenance failures during a tag purge are logged and do not by themselves turn an otherwise successful purge into a `500`; the request result reflects whether matching cache files were purged, not whether every in-memory update succeeded.
 
