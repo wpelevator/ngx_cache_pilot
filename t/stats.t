@@ -150,7 +150,7 @@ GET /_stats
 --- error_code: 200
 --- response_headers
 Content-Type: application/json
---- response_body_like: "purges".*"exact".*"wildcard".*"tag".*"all"
+--- response_body_like: "purges".*"exact".*"wildcard".*"tag".*"all".*"purged".*"exact_key".*"wildcard_key".*"by_tag"
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
@@ -193,7 +193,7 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 [
     'root',
     '{"key": ',
-    '"exact":\{"hard":[1-9]',
+    '"exact":\{"hard":[1-9].*"purged":\{"exact_key":[1-9][0-9]*,"wildcard_key":0,"by_tag":0\}',
 ]
 --- timeout: 10
 --- no_error_log eval
@@ -209,7 +209,7 @@ GET /_stats?format=prometheus
 --- error_code: 200
 --- response_headers
 Content-Type: text/plain; version=0.0.4; charset=utf-8
---- response_body_like: nginx_cache_pilot_index_last_updated_at_seconds\{zone="stats_test"\}
+--- response_body_like: nginx_cache_pilot_purged_entries_total\{by="exact_key"\}
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/

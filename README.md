@@ -393,6 +393,11 @@ location /_cache_stats {
             "soft": 0
         }
     },
+    "purged": {
+        "exact_key": 0,
+        "wildcard_key": 0,
+        "by_tag": 6
+    },
     "key_index": {
         "exact_fanout": 0,
         "wildcard_hits": 0
@@ -421,11 +426,12 @@ location /_cache_stats {
 
 Additional zones are omitted for brevity.
 
-`zones.<zone>.max_size` reports the configured NGINX cache zone limit. When the in-memory index is enabled, `index.max_size` reports the configured `cache_pilot_index_zone_size` shared-memory limit for the index and `index.last_updated_at` reports the Unix epoch timestamp of the last index mutation observed for that zone. `index` is omitted when the in-memory index is unavailable. `index.state_code` uses `0=disabled`, `1=configured`, and `2=ready`. `purges` counters are global across all zones and survive `nginx -s reload`.
+`zones.<zone>.max_size` reports the configured NGINX cache zone limit. When the in-memory index is enabled, `index.max_size` reports the configured `cache_pilot_index_zone_size` shared-memory limit for the index and `index.last_updated_at` reports the Unix epoch timestamp of the last index mutation observed for that zone. `index` is omitted when the in-memory index is unavailable. `index.state_code` uses `0=disabled`, `1=configured`, and `2=ready`. `purges` counters are global across all zones and survive `nginx -s reload`. `purged.exact_key`, `purged.wildcard_key`, and `purged.by_tag` report cumulative cache entries removed or expired through exact-key, wildcard-key, and tag-based purge matching.
 
 **Prometheus metrics** (prefix `nginx_cache_pilot_`):
 
 - `nginx_cache_pilot_purges_total{type,mode}` — counter, purge operations by type (`exact`, `wildcard`, `tag`, `all`) and mode (`hard`, `soft`)
+- `nginx_cache_pilot_purged_entries_total{by}` — counter, cache entries removed or expired by purge match type (`exact_key`, `wildcard_key`, `tag`)
 - `nginx_cache_pilot_key_index_total{type}` — counter, key-index assisted purge operations by type (`exact_fanout`, `wildcard_hits`)
 - `nginx_cache_pilot_zone_size_bytes{zone}` — gauge, current zone usage in bytes
 - `nginx_cache_pilot_zone_max_size_bytes{zone}` — gauge, configured maximum NGINX cache zone size

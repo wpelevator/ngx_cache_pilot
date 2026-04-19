@@ -249,6 +249,11 @@ ngx_http_cache_pilot_write_json(u_char *p, u_char *last,
                      "\"tag\":{\"hard\":%uA,\"soft\":%uA},"
                      "\"all\":{\"hard\":%uA,\"soft\":%uA}"
                      "},"
+                     "\"purged\":{"
+                     "\"exact_key\":%uA,"
+                     "\"wildcard_key\":%uA,"
+                     "\"by_tag\":%uA"
+                     "},"
                      "\"key_index\":{"
                      "\"exact_fanout\":%uA,"
                      "\"wildcard_hits\":%uA"
@@ -262,6 +267,9 @@ ngx_http_cache_pilot_write_json(u_char *p, u_char *last,
                      m ? ngx_cache_pilot_metrics_read(&m->purges_tag_soft)      : (ngx_atomic_uint_t)0,
                      m ? ngx_cache_pilot_metrics_read(&m->purges_all_hard)      : (ngx_atomic_uint_t)0,
                      m ? ngx_cache_pilot_metrics_read(&m->purges_all_soft)      : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_by_exact_key)  : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_by_wildcard_key) : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_by_tag)        : (ngx_atomic_uint_t)0,
                      m ? ngx_cache_pilot_metrics_read(&m->key_index_exact_fanout)  : (ngx_atomic_uint_t)0,
                      m ? ngx_cache_pilot_metrics_read(&m->key_index_wildcard_hits) : (ngx_atomic_uint_t)0);
 
@@ -363,6 +371,17 @@ ngx_http_cache_pilot_write_prometheus(u_char *p, u_char *last,
                      "nginx_cache_pilot_key_index_total{type=\"wildcard_hits\"} %uA\n",
                      m ? ngx_cache_pilot_metrics_read(&m->key_index_exact_fanout)  : (ngx_atomic_uint_t)0,
                      m ? ngx_cache_pilot_metrics_read(&m->key_index_wildcard_hits) : (ngx_atomic_uint_t)0);
+
+    p = ngx_slprintf(p, last,
+                     "# HELP nginx_cache_pilot_purged_entries_total"
+                     " Total cache entries removed or expired by purge match type\n"
+                     "# TYPE nginx_cache_pilot_purged_entries_total counter\n"
+                     "nginx_cache_pilot_purged_entries_total{by=\"exact_key\"} %uA\n"
+                     "nginx_cache_pilot_purged_entries_total{by=\"wildcard_key\"} %uA\n"
+                     "nginx_cache_pilot_purged_entries_total{by=\"tag\"} %uA\n",
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_by_exact_key) : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_by_wildcard_key) : (ngx_atomic_uint_t)0,
+                     m ? ngx_cache_pilot_metrics_read(&m->purged_by_tag) : (ngx_atomic_uint_t)0);
 
     /* Zone size */
     p = ngx_slprintf(p, last,

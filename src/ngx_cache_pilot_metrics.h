@@ -23,6 +23,9 @@ struct ngx_http_cache_pilot_metrics_shctx_s {
     ngx_atomic_t  purges_all_soft;
     ngx_atomic_t  key_index_exact_fanout;
     ngx_atomic_t  key_index_wildcard_hits;
+    ngx_atomic_t  purged_by_exact_key;
+    ngx_atomic_t  purged_by_wildcard_key;
+    ngx_atomic_t  purged_by_tag;
 };
 
 /* Increment one field in the metrics shctx (no-op when metrics == NULL). */
@@ -30,6 +33,14 @@ struct ngx_http_cache_pilot_metrics_shctx_s {
     do {                                                        \
         if ((metrics) != NULL) {                               \
             ngx_atomic_fetch_add(&(metrics)->field, 1);        \
+        }                                                      \
+    } while (0)
+
+#define NGX_CACHE_PILOT_METRICS_ADD(metrics, field, value)      \
+    do {                                                        \
+        if ((metrics) != NULL && (value) > 0) {                \
+            ngx_atomic_fetch_add(&(metrics)->field,            \
+                                 (ngx_atomic_int_t) (value)); \
         }                                                      \
     } while (0)
 

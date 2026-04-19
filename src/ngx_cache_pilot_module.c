@@ -59,7 +59,8 @@ typedef struct ngx_http_cache_pilot_partial_ctx_s
 
 typedef struct {
     ngx_uint_t  purge_path;
-    ngx_uint_t  purged_by_key;
+    ngx_uint_t  purged_by_exact_key;
+    ngx_uint_t  purged_by_wildcard_key;
     ngx_uint_t  purged_by_tag;
 } ngx_http_cache_pilot_request_ctx_t;
 
@@ -68,7 +69,11 @@ ngx_http_cache_pilot_get_request_ctx(ngx_http_request_t *r);
 static ngx_str_t
 ngx_http_cache_pilot_response_path_value(ngx_http_request_t *r);
 static void
-ngx_http_cache_pilot_record_purged_key(ngx_http_request_t *r, ngx_uint_t count);
+ngx_http_cache_pilot_record_purged_exact_key(ngx_http_request_t *r,
+    ngx_uint_t count);
+static void
+ngx_http_cache_pilot_record_purged_wildcard_key(ngx_http_request_t *r,
+    ngx_uint_t count);
 
 # if (NGX_HTTP_FASTCGI)
 char       *ngx_http_fastcgi_cache_purge_conf(ngx_conf_t *cf,
@@ -1369,7 +1374,7 @@ ngx_http_cache_pilot_partial_completion(ngx_event_t *ev) {
     }
 
     if (ctx->rc == NGX_OK) {
-        ngx_http_cache_pilot_record_purged_key(r, ctx->partial.purged);
+        ngx_http_cache_pilot_record_purged_wildcard_key(r, ctx->partial.purged);
 
         {
             ngx_http_cache_pilot_main_conf_t *pmcf_m;
@@ -1742,13 +1747,15 @@ ngx_http_cache_pilot_send_response(ngx_http_request_t *r) {
         last = ngx_snprintf(buf, len + 1,
                             "{\"key\": \"%s\", \"cache_pilot\": {\"purge_path\": \"%V\", \"purged\": {\"by_key\": %ui, \"by_tag\": %ui}}}",
                             buf_keydata, &purge_path,
-                            ctx != NULL ? ctx->purged_by_key : 0,
+                            ctx != NULL ? ctx->purged_by_exact_key
+                                          + ctx->purged_by_wildcard_key : 0,
                             ctx != NULL ? ctx->purged_by_tag : 0);
     } else {
         last = ngx_snprintf(buf, len + 1,
                             "{\"key\": \"%s\", \"cache_pilot\": {\"purged\": {\"by_key\": %ui, \"by_tag\": %ui}}}",
                             buf_keydata,
-                            ctx != NULL ? ctx->purged_by_key : 0,
+                            ctx != NULL ? ctx->purged_by_exact_key
+                                          + ctx->purged_by_wildcard_key : 0,
                             ctx != NULL ? ctx->purged_by_tag : 0);
     }
 
@@ -1799,29 +1806,72 @@ ngx_http_cache_pilot_set_response_path(ngx_http_request_t *r,
 
 void
 ngx_http_cache_pilot_set_response_stats(ngx_http_request_t *r,
-                                        ngx_uint_t purged_by_key,
+                                        ngx_uint_t purged_by_exact_key,
+                                        ngx_uint_t purged_by_wildcard_key,
                                         ngx_uint_t purged_by_tag) {
     ngx_http_cache_pilot_request_ctx_t  *ctx;
+    ngx_http_cache_pilot_main_conf_t    *pmcf;
 
     ctx = ngx_http_cache_pilot_get_request_ctx(r);
     if (ctx == NULL) {
         return;
     }
 
-    ctx->purged_by_key = purged_by_key;
+    pmcf = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
+    NGX_CACHE_PILOT_METRICS_ADD(ngx_http_cache_pilot_metrics_ctx(pmcf),
+                                purged_by_exact_key,
+                                purged_by_exact_key > ctx->purged_by_exact_key
+                                ? purged_by_exact_key - ctx->purged_by_exact_key
+                                : 0);
+    NGX_CACHE_PILOT_METRICS_ADD(ngx_http_cache_pilot_metrics_ctx(pmcf),
+                                purged_by_wildcard_key,
+                                purged_by_wildcard_key > ctx->purged_by_wildcard_key
+                                ? purged_by_wildcard_key - ctx->purged_by_wildcard_key
+                                : 0);
+    NGX_CACHE_PILOT_METRICS_ADD(ngx_http_cache_pilot_metrics_ctx(pmcf),
+                                purged_by_tag,
+                                purged_by_tag > ctx->purged_by_tag
+                                ? purged_by_tag - ctx->purged_by_tag : 0);
+
+    ctx->purged_by_exact_key = purged_by_exact_key;
+    ctx->purged_by_wildcard_key = purged_by_wildcard_key;
     ctx->purged_by_tag = purged_by_tag;
 }
 
 static void
-ngx_http_cache_pilot_record_purged_key(ngx_http_request_t *r, ngx_uint_t count) {
+ngx_http_cache_pilot_record_purged_exact_key(ngx_http_request_t *r,
+                                             ngx_uint_t count) {
     ngx_http_cache_pilot_request_ctx_t  *ctx;
+    ngx_http_cache_pilot_main_conf_t    *pmcf;
 
     ctx = ngx_http_cache_pilot_get_request_ctx(r);
     if (ctx == NULL) {
         return;
     }
 
-    ctx->purged_by_key += count;
+    pmcf = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
+    NGX_CACHE_PILOT_METRICS_ADD(ngx_http_cache_pilot_metrics_ctx(pmcf),
+                                purged_by_exact_key, count);
+
+    ctx->purged_by_exact_key += count;
+}
+
+static void
+ngx_http_cache_pilot_record_purged_wildcard_key(ngx_http_request_t *r,
+                                                ngx_uint_t count) {
+    ngx_http_cache_pilot_request_ctx_t  *ctx;
+    ngx_http_cache_pilot_main_conf_t    *pmcf;
+
+    ctx = ngx_http_cache_pilot_get_request_ctx(r);
+    if (ctx == NULL) {
+        return;
+    }
+
+    pmcf = ngx_http_get_module_main_conf(r, ngx_http_cache_pilot_module);
+    NGX_CACHE_PILOT_METRICS_ADD(ngx_http_cache_pilot_metrics_ctx(pmcf),
+                                purged_by_wildcard_key, count);
+
+    ctx->purged_by_wildcard_key += count;
 }
 
 static ngx_http_cache_pilot_request_ctx_t *
@@ -2285,7 +2335,7 @@ ngx_http_cache_pilot_exact_purge(ngx_http_request_t *r) {
                                         key_index_exact_fanout);
         }
 
-        ngx_http_cache_pilot_record_purged_key(r, purged_count);
+        ngx_http_cache_pilot_record_purged_exact_key(r, purged_count);
     }
 
     ngx_http_cache_pilot_release_updating(c);
@@ -2398,7 +2448,7 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
                                         key_index_exact_fanout);
         }
 
-        ngx_http_cache_pilot_record_purged_key(r, purged_count);
+        ngx_http_cache_pilot_record_purged_exact_key(r, purged_count);
     }
 
     ngx_http_cache_pilot_release_updating(c);
@@ -2646,7 +2696,7 @@ ngx_http_cache_pilot_partial(ngx_http_request_t *r, ngx_http_file_cache_t *cache
 
         ngx_http_cache_pilot_set_response_path(r,
                                                NGX_HTTP_CACHE_PILOT_PURGE_PATH_WILDCARD_INDEX);
-        ngx_http_cache_pilot_record_purged_key(r, purged_count);
+        ngx_http_cache_pilot_record_purged_wildcard_key(r, purged_count);
 
         NGX_CACHE_PILOT_METRICS_INC(ngx_http_cache_pilot_metrics_ctx(pmcf_idx),
                                     key_index_wildcard_hits);
@@ -2756,7 +2806,7 @@ ngx_http_cache_pilot_partial(ngx_http_request_t *r, ngx_http_file_cache_t *cache
         return NGX_ERROR;
     }
 
-    ngx_http_cache_pilot_record_purged_key(r, ctx->purged);
+    ngx_http_cache_pilot_record_purged_wildcard_key(r, ctx->purged);
 
     {
         ngx_http_cache_pilot_main_conf_t *pmcf_m;
