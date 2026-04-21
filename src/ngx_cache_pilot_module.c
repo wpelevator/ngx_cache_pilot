@@ -59,18 +59,6 @@ typedef struct ngx_http_cache_pilot_partial_ctx_s
 typedef struct ngx_http_cache_pilot_protocol_s
     ngx_http_cache_pilot_protocol_t;
 
-typedef struct {
-    ngx_uint_t  purge_path;
-    ngx_uint_t  purged_exact_hard;
-    ngx_uint_t  purged_exact_soft;
-    ngx_uint_t  purged_wildcard_hard;
-    ngx_uint_t  purged_wildcard_soft;
-    ngx_uint_t  purged_tag_hard;
-    ngx_uint_t  purged_tag_soft;
-    ngx_uint_t  purged_all_hard;
-    ngx_uint_t  purged_all_soft;
-} ngx_http_cache_pilot_request_ctx_t;
-
 static ngx_http_cache_pilot_request_ctx_t *
 ngx_http_cache_pilot_get_request_ctx(ngx_http_request_t *r);
 static ngx_str_t
@@ -318,7 +306,7 @@ static ngx_command_t  ngx_http_cache_pilot_module_commands[] = {
 
 static ngx_http_module_t  ngx_http_cache_pilot_module_ctx = {
     NULL,                                  /* preconfiguration */
-    NULL,                                  /* postconfiguration */
+    ngx_http_cache_pilot_index_postconfiguration,  /* postconfiguration */
 
     ngx_http_cache_pilot_create_main_conf, /* create main configuration */
     ngx_http_cache_pilot_init_main_conf,   /* init main configuration */
@@ -1952,6 +1940,11 @@ ngx_http_cache_pilot_soft_path(ngx_http_file_cache_t *cache, ngx_str_t *path,
     ngx_http_file_cache_node_t  *node;
     u_char                       key[NGX_HTTP_CACHE_KEY_LEN];
 
+    /*
+     * Update the on-disk header first.  Only expire the SHM node after the
+     * disk write succeeds so that SHM and disk metadata stay consistent even
+     * when the write fails (e.g. permission error, I/O error).
+     */
     rc = ngx_http_cache_pilot_soft_header(path, log);
     if (rc != NGX_OK) {
         return rc;
@@ -2347,8 +2340,7 @@ ngx_http_cache_pilot_response_path_value(ngx_http_request_t *r) {
         ngx_string("exact-key-fanout"),
         ngx_string("key-prefix-index"),
         ngx_string("filesystem-fallback"),
-        ngx_string("reused-persisted-index"),
-        ngx_string("bootstrapped-on-demand")
+        ngx_string("reused-persisted-index")
     };
 
     ngx_http_cache_pilot_request_ctx_t  *ctx;
@@ -2447,9 +2439,7 @@ ngx_http_cache_pilot_key_index_ready(ngx_http_request_t *r,
 
     *reader = ngx_http_cache_index_store_reader(*pmcf, r->connection->log);
     if (*reader == NULL) {
-        if (ngx_http_cache_index_is_owner()) {
-            *reader = ngx_http_cache_index_store_writer();
-        }
+        *reader = ngx_http_cache_index_store_writer();
         if (*reader == NULL) {
             return NGX_DECLINED;
         }
@@ -2797,6 +2787,7 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
     ngx_uint_t             purged_count;
     ngx_int_t              purge_rc;
     ngx_int_t              rc;
+    ngx_int_t              cache_open_state;
     ngx_http_file_cache_t  *cache;
     ngx_http_cache_t       *c;
     ngx_http_cache_pilot_main_conf_t *pmcf_m;
@@ -2807,8 +2798,11 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
     ngx_str_t                       *kv;
     ngx_str_t                        key_text;
     ngx_uint_t                       ki;
+    ngx_flag_t                       saw_updating;
 
-    switch (ngx_http_file_cache_open(r)) {
+    cache_open_state = ngx_http_file_cache_open(r);
+
+    switch (cache_open_state) {
     case NGX_OK:
     case NGX_HTTP_CACHE_STALE:
 #  if (nginx_version >= 8001) \
@@ -2828,6 +2822,14 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
 
     c = r->cache;
     cache = c->file_cache;
+    saw_updating = 0;
+
+#  if (nginx_version >= 8001) \
+       || ((nginx_version < 8000) && (nginx_version >= 7060))
+    if (cache_open_state == NGX_HTTP_CACHE_UPDATING) {
+        saw_updating = 1;
+    }
+#  endif
 
     ngx_shmtx_lock(&cache->shpool->mutex);
 
@@ -2838,19 +2840,25 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
 
     ngx_shmtx_unlock(&cache->shpool->mutex);
 
+    /*
+     * Update the on-disk header before expiring the SHM node.  If the write
+     * fails, the SHM node is left untouched so SHM and disk stay consistent.
+     */
     rc = ngx_http_cache_pilot_soft_header(&c->file.name, r->connection->log);
     if (rc != NGX_OK) {
         return rc;
     }
 
     ngx_shmtx_lock(&cache->shpool->mutex);
-
-    if (c->node->exists) {
-        c->valid_sec = 0;
-        c->node->valid_sec = 0;
-    }
-
+    c->valid_sec = 0;
+    c->node->valid_sec = 0;
     ngx_shmtx_unlock(&cache->shpool->mutex);
+
+    if (saw_updating && !c->updating) {
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                      "soft purge touched an updating cache entry without lock ownership; "
+                      "enable proxy_cache_lock and proxy_cache_use_stale updating to prevent backend bursts");
+    }
 
     fanout_used = 0;
     purged_count = 1;

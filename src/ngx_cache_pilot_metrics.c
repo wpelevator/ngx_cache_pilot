@@ -113,7 +113,7 @@ ngx_http_cache_pilot_snapshot_zone(ngx_http_cache_pilot_stat_zone_t *sz,
         snap->index_max_size = (off_t) pmcf->index_shm_size;
 
         reader = ngx_http_cache_index_store_reader(pmcf, ngx_cycle->log);
-        if (reader == NULL && ngx_http_cache_index_is_owner()) {
+        if (reader == NULL) {
             reader = ngx_http_cache_index_store_writer();
         }
 

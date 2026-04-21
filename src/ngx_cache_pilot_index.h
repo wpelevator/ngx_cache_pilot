@@ -7,7 +7,6 @@
 #include <ngx_http.h>
 
 #if (NGX_LINUX)
-    #include <sys/inotify.h>
     #include <sys/stat.h>
     #include <dirent.h>
     #include <errno.h>
@@ -67,8 +66,7 @@ typedef enum {
     NGX_HTTP_CACHE_PILOT_PURGE_PATH_EXACT_KEY_FANOUT,
     NGX_HTTP_CACHE_PILOT_PURGE_PATH_WILDCARD_INDEX,
     NGX_HTTP_CACHE_PILOT_PURGE_PATH_FILESYSTEM_FALLBACK,
-    NGX_HTTP_CACHE_PILOT_PURGE_PATH_REUSED_PERSISTED_INDEX,
-    NGX_HTTP_CACHE_PILOT_PURGE_PATH_BOOTSTRAPPED_ON_DEMAND
+    NGX_HTTP_CACHE_PILOT_PURGE_PATH_REUSED_PERSISTED_INDEX
 } ngx_http_cache_pilot_purge_path_e;
 
 typedef enum {
@@ -77,6 +75,20 @@ typedef enum {
     NGX_HTTP_CACHE_PILOT_PURGE_STATS_TAG,
     NGX_HTTP_CACHE_PILOT_PURGE_STATS_ALL
 } ngx_http_cache_pilot_purge_stats_e;
+
+typedef struct {
+    ngx_uint_t                    purge_path;
+    ngx_uint_t                    purged_exact_hard;
+    ngx_uint_t                    purged_exact_soft;
+    ngx_uint_t                    purged_wildcard_hard;
+    ngx_uint_t                    purged_wildcard_soft;
+    ngx_uint_t                    purged_tag_hard;
+    ngx_uint_t                    purged_tag_soft;
+    ngx_uint_t                    purged_all_hard;
+    ngx_uint_t                    purged_all_soft;
+    ngx_array_t                  *index_tags;
+    ngx_str_t                     index_zone_name;
+} ngx_http_cache_pilot_request_ctx_t;
 
 /*
  * Forward declaration for ngx_http_cache_pilot_metrics_shctx_t.
@@ -125,41 +137,16 @@ typedef struct {
     time_t                        last_bootstrap_at;
     time_t                        last_updated_at;
 } ngx_http_cache_index_zone_index_t;
-
-typedef struct ngx_http_cache_index_watch_s {
-    ngx_rbtree_node_t             node;
-    ngx_str_t                     zone_name;
-    ngx_http_file_cache_t        *cache;
-    ngx_str_t                     path;
-    int                           wd;
-} ngx_http_cache_index_watch_t;
-
-typedef struct {
-    ngx_uint_t                    operation;
-    ngx_str_t                     zone_name;
-    ngx_http_file_cache_t        *cache;
-    ngx_str_t                     path;
-} ngx_http_cache_index_pending_op_t;
 #define NGX_HTTP_CACHE_INDEX_SHM_SIZE           (32 * 1024 * 1024)
 
 #define NGX_HTTP_CACHE_TAG_MAX_TOKENS_PER_SCAN  1000
 
 typedef struct {
     ngx_uint_t                    initialized;
-    ngx_uint_t                    active;
-    ngx_uint_t                    owner;
-    ngx_connection_t             *inotify_conn;
-    ngx_event_t                   timer;
     ngx_cycle_t                  *cycle;
     ngx_rbtree_t                  zone_index;
     ngx_rbtree_node_t             zone_sentinel;
-    ngx_rbtree_t                  watch_index;
-    ngx_rbtree_node_t             watch_sentinel;
-    /* Pending store operations accumulated by the inotify read handler.
-     * The timer handler drains these to the backing store each tick, then
-     * resets the pool to reclaim memory. */
-    ngx_pool_t                   *pending_pool;
-    ngx_array_t                  *pending_ops;
+    ngx_event_t                   bootstrap_ev;
 } ngx_http_cache_index_watch_runtime_t;
 
 typedef struct {
@@ -169,12 +156,11 @@ typedef struct {
     ngx_flag_t                    owner;
 } ngx_http_cache_index_store_runtime_t;
 
-#define NGX_HTTP_CACHE_TAG_OP_DELETE   1
-#define NGX_HTTP_CACHE_TAG_OP_REPLACE  2
-
 #endif
 
 extern ngx_module_t ngx_http_cache_pilot_module;
+
+ngx_int_t ngx_http_cache_pilot_index_postconfiguration(ngx_conf_t *cf);
 
 char *ngx_http_cache_index_headers_conf(ngx_conf_t *cf, ngx_command_t *cmd,
                                         void *conf);
@@ -258,7 +244,6 @@ ngx_int_t ngx_http_cache_index_init_runtime(ngx_cycle_t *cycle,
         ngx_http_cache_pilot_main_conf_t *pmcf);
 ngx_int_t ngx_http_cache_index_flush_pending(ngx_cycle_t *cycle);
 void ngx_http_cache_index_shutdown_runtime(void);
-ngx_flag_t ngx_http_cache_index_is_owner(void);
 ngx_flag_t ngx_http_cache_index_store_configured(
     ngx_http_cache_pilot_main_conf_t *pmcf);
 #endif

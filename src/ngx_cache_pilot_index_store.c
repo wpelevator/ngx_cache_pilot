@@ -39,6 +39,9 @@ static ngx_int_t ngx_http_cache_index_store_shm_get_zone_state(
 static ngx_int_t ngx_http_cache_index_store_shm_set_zone_state(
     ngx_http_cache_index_store_t *store, ngx_str_t *zone_name,
     ngx_http_cache_index_zone_state_t *state, ngx_log_t *log);
+static void ngx_http_cache_index_store_normalize_zone_state(
+    ngx_http_cache_index_zone_state_t *state, ngx_str_t *zone_name,
+    ngx_log_t *log, const char *source);
 typedef ngx_str_t (*ngx_http_cache_index_store_shm_node_string_pt)(
     ngx_rbtree_node_t *node);
 typedef void *(*ngx_http_cache_index_store_shm_node_data_pt)(
@@ -1299,6 +1302,9 @@ ngx_http_cache_index_store_shm_get_zone_state(ngx_http_cache_index_store_t *stor
     }
     ngx_shmtx_unlock(&ctx->shpool->mutex);
 
+    ngx_http_cache_index_store_normalize_zone_state(state, zone_name, log,
+            "read");
+
     return NGX_OK;
 }
 
@@ -1310,6 +1316,9 @@ ngx_http_cache_index_store_shm_set_zone_state(ngx_http_cache_index_store_t *stor
     ngx_http_cache_index_shm_zone_t   *zone;
 
     (void) log;
+
+    ngx_http_cache_index_store_normalize_zone_state(state, zone_name, log,
+            "write");
 
     ctx = store->ctx;
     ngx_shmtx_lock(&ctx->shpool->mutex);
@@ -1327,6 +1336,54 @@ ngx_http_cache_index_store_shm_set_zone_state(ngx_http_cache_index_store_t *stor
     ngx_shmtx_unlock(&ctx->shpool->mutex);
 
     return NGX_OK;
+}
+
+static void
+ngx_http_cache_index_store_normalize_zone_state(
+    ngx_http_cache_index_zone_state_t *state, ngx_str_t *zone_name,
+    ngx_log_t *log, const char *source) {
+    if (state == NULL) {
+        return;
+    }
+
+    if (!state->bootstrap_complete) {
+        if (state->last_bootstrap_at != 0 || state->last_updated_at != 0) {
+            if (log != NULL) {
+                ngx_log_error(NGX_LOG_WARN, log, 0,
+                              "cache_tag: normalized zone state for \"%V\" on %s: "
+                              "bootstrap_complete=0 requires zero timestamps",
+                              zone_name, source);
+            }
+
+            state->last_bootstrap_at = 0;
+            state->last_updated_at = 0;
+        }
+
+        return;
+    }
+
+    if (state->last_bootstrap_at == 0) {
+        if (log != NULL) {
+            ngx_log_error(NGX_LOG_WARN, log, 0,
+                          "cache_tag: normalized zone state for \"%V\" on %s: "
+                          "bootstrap_complete=1 requires last_bootstrap_at",
+                          zone_name, source);
+        }
+
+        state->last_bootstrap_at = state->last_updated_at != 0
+                                   ? state->last_updated_at : ngx_time();
+    }
+
+    if (state->last_updated_at < state->last_bootstrap_at) {
+        if (log != NULL) {
+            ngx_log_error(NGX_LOG_WARN, log, 0,
+                          "cache_tag: normalized zone state for \"%V\" on %s: "
+                          "last_updated_at must be >= last_bootstrap_at",
+                          zone_name, source);
+        }
+
+        state->last_updated_at = state->last_bootstrap_at;
+    }
 }
 
 ngx_int_t
