@@ -1940,6 +1940,16 @@ ngx_http_cache_pilot_soft_path(ngx_http_file_cache_t *cache, ngx_str_t *path,
     ngx_http_file_cache_node_t  *node;
     u_char                       key[NGX_HTTP_CACHE_KEY_LEN];
 
+    /*
+     * Update the on-disk header first.  Only expire the SHM node after the
+     * disk write succeeds so that SHM and disk metadata stay consistent even
+     * when the write fails (e.g. permission error, I/O error).
+     */
+    rc = ngx_http_cache_pilot_soft_header(path, log);
+    if (rc != NGX_OK) {
+        return rc;
+    }
+
     if (ngx_http_cache_pilot_filename_key(path, key) == NGX_OK) {
         ngx_shmtx_lock(&cache->shpool->mutex);
 
@@ -1949,11 +1959,6 @@ ngx_http_cache_pilot_soft_path(ngx_http_file_cache_t *cache, ngx_str_t *path,
         }
 
         ngx_shmtx_unlock(&cache->shpool->mutex);
-    }
-
-    rc = ngx_http_cache_pilot_soft_header(path, log);
-    if (rc != NGX_OK) {
-        return rc;
     }
 
     return NGX_OK;
@@ -2833,15 +2838,21 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
         return NGX_DECLINED;
     }
 
-    c->valid_sec = 0;
-    c->node->valid_sec = 0;
-
     ngx_shmtx_unlock(&cache->shpool->mutex);
 
+    /*
+     * Update the on-disk header before expiring the SHM node.  If the write
+     * fails, the SHM node is left untouched so SHM and disk stay consistent.
+     */
     rc = ngx_http_cache_pilot_soft_header(&c->file.name, r->connection->log);
     if (rc != NGX_OK) {
         return rc;
     }
+
+    ngx_shmtx_lock(&cache->shpool->mutex);
+    c->valid_sec = 0;
+    c->node->valid_sec = 0;
+    ngx_shmtx_unlock(&cache->shpool->mutex);
 
     if (saw_updating && !c->updating) {
         ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,

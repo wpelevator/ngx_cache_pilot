@@ -146,6 +146,7 @@ typedef struct {
     ngx_cycle_t                  *cycle;
     ngx_rbtree_t                  zone_index;
     ngx_rbtree_node_t             zone_sentinel;
+    ngx_event_t                   bootstrap_ev;
 } ngx_http_cache_index_watch_runtime_t;
 
 typedef struct {

@@ -527,9 +527,47 @@ ngx_http_cache_index_scan_recursive(ngx_http_cache_index_store_t *store,
     return NGX_OK;
 }
 
+
+/*
+ * Timer callback: retry bootstrapping any zones that were previously deferred
+ * because the cache loader was still cold.  Reschedules itself every second
+ * (NGX_TIMER_LAZY_DELAY) until all zones are bootstrapped or a fatal error
+ * occurs.
+ */
+static void
+ngx_http_cache_index_bootstrap_timer_handler(ngx_event_t *ev) {
+    ngx_cycle_t                      *cycle;
+    ngx_http_cache_pilot_main_conf_t *pmcf;
+    ngx_int_t                         rc;
+
+    cycle = ngx_http_cache_index_watch_runtime.cycle;
+    if (cycle == NULL) {
+        return;
+    }
+
+    pmcf = ngx_http_cycle_get_module_main_conf(cycle, ngx_http_cache_pilot_module);
+
+    rc = ngx_http_cache_index_try_bootstrap_zones(cycle, pmcf);
+
+    if (rc == NGX_AGAIN) {
+        /* Loader still cold for some zones; retry in 1 second. */
+        ngx_add_timer(ev, 1000);
+        return;
+    }
+
+    if (rc == NGX_ERROR) {
+        ngx_log_error(NGX_LOG_ERR, cycle->log, 0,
+                      "cache_tag deferred bootstrap failed; will not retry");
+    }
+    /* NGX_OK: all zones bootstrapped; no further timer needed. */
+}
+
+
 ngx_int_t
 ngx_http_cache_index_init_runtime(ngx_cycle_t *cycle,
                                   ngx_http_cache_pilot_main_conf_t *pmcf) {
+    ngx_int_t  rc;
+
     ngx_memzero(&ngx_http_cache_index_watch_runtime,
                 sizeof(ngx_http_cache_index_watch_runtime));
 
@@ -551,8 +589,23 @@ ngx_http_cache_index_init_runtime(ngx_cycle_t *cycle,
         return NGX_ERROR;
     }
 
-    if (ngx_http_cache_index_try_bootstrap_zones(cycle, pmcf) != NGX_OK) {
+    /*
+     * Attempt bootstrap now.  If the cache loader is still cold, some zones
+     * will be deferred (NGX_AGAIN).  In that case schedule a timer to retry
+     * every second until the loader finishes warming up.  A hard error
+     * (NGX_ERROR) is fatal and propagated to abort process init.
+     */
+    rc = ngx_http_cache_index_try_bootstrap_zones(cycle, pmcf);
+    if (rc == NGX_ERROR) {
         return NGX_ERROR;
+    }
+
+    if (rc == NGX_AGAIN) {
+        ngx_http_cache_index_watch_runtime.bootstrap_ev.handler =
+            ngx_http_cache_index_bootstrap_timer_handler;
+        ngx_http_cache_index_watch_runtime.bootstrap_ev.log = cycle->log;
+        ngx_http_cache_index_watch_runtime.bootstrap_ev.data = NULL;
+        ngx_add_timer(&ngx_http_cache_index_watch_runtime.bootstrap_ev, 1000);
     }
 
     ngx_http_cache_index_watch_runtime.initialized = 1;
@@ -560,21 +613,22 @@ ngx_http_cache_index_init_runtime(ngx_cycle_t *cycle,
     return NGX_OK;
 }
 
+/*
+ * Bootstrap is now driven by a timer started in ngx_http_cache_index_init_runtime().
+ * This function is kept as a cheap guard so callers compile without change.
+ */
 ngx_int_t
 ngx_http_cache_index_flush_pending(ngx_cycle_t *cycle) {
-    if (!ngx_http_cache_index_watch_runtime.initialized
-            || ngx_http_cache_index_watch_runtime.cycle == NULL
-            || cycle == NULL) {
-        return NGX_OK;
-    }
-
-    return ngx_http_cache_index_try_bootstrap_zones(cycle,
-            ngx_http_cycle_get_module_main_conf(cycle,
-                    ngx_http_cache_pilot_module));
+    (void) cycle;
+    return NGX_OK;
 }
 
 void
 ngx_http_cache_index_shutdown_runtime(void) {
+    if (ngx_http_cache_index_watch_runtime.bootstrap_ev.timer_set) {
+        ngx_del_timer(&ngx_http_cache_index_watch_runtime.bootstrap_ev);
+    }
+
     ngx_http_cache_index_store_runtime_shutdown();
 
     ngx_memzero(&ngx_http_cache_index_watch_runtime,
@@ -706,6 +760,14 @@ ngx_http_cache_index_zone_state_cache_sync(ngx_cycle_t *cycle,
     return NGX_OK;
 }
 
+/*
+ * Try to bootstrap all configured index zones that have not yet been
+ * bootstrapped.  Returns:
+ *   NGX_OK     – all zones are bootstrapped (or none need it)
+ *   NGX_AGAIN  – one or more zones were skipped because the cache loader is
+ *                still cold; caller should retry later (e.g. via timer)
+ *   NGX_ERROR  – a fatal I/O or store error occurred
+ */
 static ngx_int_t
 ngx_http_cache_index_try_bootstrap_zones(ngx_cycle_t *cycle,
         ngx_http_cache_pilot_main_conf_t *pmcf) {
@@ -713,6 +775,7 @@ ngx_http_cache_index_try_bootstrap_zones(ngx_cycle_t *cycle,
     ngx_http_cache_index_store_t       *writer;
     ngx_http_cache_index_zone_state_t   state;
     ngx_uint_t                          i;
+    ngx_int_t                           deferred;
 
     if (pmcf == NULL || pmcf->zones == NULL || pmcf->zones->nelts == 0) {
         return NGX_OK;
@@ -724,6 +787,7 @@ ngx_http_cache_index_try_bootstrap_zones(ngx_cycle_t *cycle,
     }
 
     zone = pmcf->zones->elts;
+    deferred = 0;
 
     for (i = 0; i < pmcf->zones->nelts; i++) {
         if (zone[i].cache == NULL || zone[i].cache->path == NULL) {
@@ -735,6 +799,7 @@ ngx_http_cache_index_try_bootstrap_zones(ngx_cycle_t *cycle,
             ngx_log_debug1(NGX_LOG_DEBUG_HTTP, cycle->log, 0,
                            "cache_tag bootstrap deferred while loader is cold for zone \"%V\"",
                            &zone[i].zone_name);
+            deferred = 1;
             continue;
         }
 
@@ -770,7 +835,7 @@ ngx_http_cache_index_try_bootstrap_zones(ngx_cycle_t *cycle,
                       &zone[i].zone_name);
     }
 
-    return NGX_OK;
+    return deferred ? NGX_AGAIN : NGX_OK;
 }
 
 #endif
