@@ -16,8 +16,10 @@ This is a fork of the [`ngx_cache_purge` module](https://github.com/nginx-module
 - cache-tag indexing currently requires Linux
 - cache-tag and cache-key indexing use a single in-memory shared-memory backend configured with `cache_pilot_index_zone_size`
 - index contents are rebuilt from cache files after a cold restart; they do not survive nginx process restarts
+- index bootstrap is deferred while the nginx cache zone is cold (`cache loader` warmup); indexed purges become ready after the zone is warm and bootstrap has completed
+- the current index lifecycle does not use an inotify watcher; index freshness is maintained by startup bootstrap plus incremental mtime-based rescans during indexed purge paths
 - indexed tag purges require the cache zone to be registered with `cache_pilot_index on` and the shared-memory index for that zone to be ready; the module no longer runs an on-demand bootstrap inside the purge request path
-- `--with-threads` is strongly recommended so startup bootstrap and wildcard purge scans do not block the nginx event loop
+- `--with-threads` is strongly recommended so wildcard purge scans do not block the nginx event loop
 
 ## Installation Instructions
 
@@ -72,7 +74,7 @@ For a dynamic module build in this workflow, replace `--add-module` with `--add-
 
 The repository `config` script does not require an external index-store dependency. The tag index lives in an nginx shared-memory zone managed by the module itself.
 
-`--with-threads` enables nginx's thread pool support. When present, the module offloads two blocking operations to a worker thread: the startup cache-tree bootstrap (tag index population) and wildcard/partial-key purge scans. Without `--with-threads` these operations run synchronously in the event loop.
+`--with-threads` enables nginx's thread pool support. When present, the module offloads wildcard/partial-key purge scans to a worker thread. Without `--with-threads` these operations run synchronously in the event loop.
 
 If you want the included containerized build environment, tests, or the manual validation setup, see [Development](#development).
 
@@ -346,7 +348,9 @@ All watched locations that share the same cache zone must use the same `cache_pi
 - **default**: `on` when `cache_pilot_index_zone_size` is configured and the location uses upstream cache, otherwise `off`
 - **context**: `http`, `server`, `location`
 
-Enable cache-tag indexing for the cache used by the current purge-enabled location. When enabled, the module watches the cache directory, indexes tags found in cached response headers, and allows tag-based `PURGE` requests.
+Enable cache-tag indexing for the cache used by the current purge-enabled location. When enabled, the module bootstraps index metadata from cache files at startup and allows tag-based `PURGE` requests once that bootstrap is ready. Indexed purge paths also run incremental mtime-based rescans to pick up newly written cache files.
+
+At startup, index bootstrap waits until the nginx cache zone is no longer cold, then performs a one-time cache-tree scan before indexed tag purges for that zone are considered ready.
 
 When `cache_pilot_index_zone_size` is also configured, watched cache files also update the shared-memory exact-key index used by exact-key fanout. Wildcard key-prefix purge paths reuse the same in-memory file metadata, but do not yet use a dedicated prefix tree.
 
@@ -514,6 +518,13 @@ The `soft` config parameter still controls `purge_all`, which does not honor `ca
 
 For wildcard and `purge_all` soft purges, the module expires both the cache-file header on disk and the matching shared-memory cache node so the next lookup is treated as expired consistently.
 
+For high-traffic keys, soft purge should be deployed with nginx cache locking to prevent thundering-herd refresh bursts:
+
+- `proxy_cache_lock on;`
+- `proxy_cache_use_stale updating;`
+
+Without those settings, concurrent requests that observe an expired object can still fan out to upstream simultaneously.
+
 ## Cache Tags
 
 The module can also purge cached objects by cache tag, similar to `Surrogate-Key` or `Cache-Tag` support in other reverse proxies.
@@ -526,7 +537,7 @@ When `cache_pilot_index_zone_size` and `cache_pilot_index` are enabled:
 - the module stores a shared-memory tag-to-cache-file index
 - the module stores a shared-memory exact-key index used for exact-key fanout across sibling files sharing one cache key
 - the module stores per-file cache-key metadata reused by wildcard key-prefix purge
-- on Linux, a worker-owned `inotify` watcher keeps the index up to date as cache files are created, replaced, or removed
+- startup bootstrap is deferred until the nginx cache loader has warmed the target zone (`cold` becomes false)
 
 To purge by tag, send a normal `PURGE` request and include one or more tag headers:
 
@@ -553,13 +564,15 @@ Notes:
 - The tag index lives in a shared-memory zone sized by `cache_pilot_index_zone_size`.
 - After a cold restart the index is rebuilt from cache files during startup. Indexed tag purges decline until that rebuild has completed for the target zone.
 - Rebuild time is roughly linear in the number of cache files and the cost of reading their headers, so large caches can take seconds to minutes to become ready after restart. Use `cache_pilot_stats` to gate deploy or purge automation on readiness.
-- The cache watcher keeps the index fresh during normal operation and applies queued inotify updates on a 250 ms coalescing timer.
-- When built with `--with-threads`, the startup cache-tree bootstrap and wildcard purge scans run in an nginx thread pool, keeping the event loop unblocked. Without threads, both operations run synchronously.
+- Current startup logic defers index bootstrap until the cache zone is warm (`cold=0`) and then performs a one-time bootstrap scan.
+- When built with `--with-threads`, wildcard purge scans run in an nginx thread pool, keeping the event loop unblocked. Without threads, wildcard scans run synchronously.
 
 ## Known issues
 
 - Exact-key fanout across `Vary` variants depends on key-index readiness for the zone. If key-index data is unavailable or not yet ready, exact-key purge targets only the directly resolved cache file and does not run a full cache scan.
 - Wildcard purges still use a linear scan over in-memory key metadata when the index is ready. They avoid a filesystem walk in that case, but they are not yet backed by a dedicated prefix index.
+- Soft purge does not enforce `proxy_cache_lock` or `proxy_cache_use_stale updating`; if those nginx directives are not enabled, expiring a hot object can still trigger concurrent upstream refreshes.
+- The current index lifecycle does not include continuous filesystem watch updates; newly written cache files are discovered by incremental mtime-based rescans during indexed purge paths.
 
 ## Cache Index Architecture
 
@@ -578,13 +591,13 @@ key purge relies on filesystem walking.
 
 ### Index population
 
-The index is built and kept current through two mechanisms that work together:
+The index is currently built through startup bootstrap.
 
-**inotify watcher (Linux only).** When `cache_pilot_index on` is set, one worker process (the owner) opens an `inotify` watch on the cache directory tree. The watcher updates the shared-memory tag index and cache-key metadata as cache files are created, replaced, or removed.
+**Loader-aligned startup bootstrap.** After a restart, bootstrap waits until nginx marks the cache zone warm (`cold=0`). The module then scans the cache directory tree, reads cached response headers, extracts tags, and rebuilds the shared-memory index before indexed tag purges for that zone are considered ready. Requests do not trigger a synchronous request-path bootstrap anymore.
 
-The watcher coalesces pending inotify operations on a 250 ms timer before applying them to the shared-memory index. That keeps write amplification down, but it also means purge visibility for just-written cache files can lag by up to roughly one timer tick.
+**Incremental refresh.** Indexed purge paths run an incremental mtime-based scan against the cache directory and merge changed files into the shared-memory index before resolving purge candidates.
 
-**Cold-start bootstrap.** After a restart, the module scans the cache directory tree, reads the cached response headers from every file it finds, extracts tags, and rebuilds the shared-memory index before indexed tag purges for that zone are considered ready. Requests do not trigger this bootstrap on demand anymore.
+Operationally, the startup sequence is now: wait for loader warmup, let the one-time bootstrap scan finish, and then rely on incremental rescans during indexed purge paths. For hot objects, pair soft purge with `proxy_cache_lock on;` and `proxy_cache_use_stale updating;` to keep a single upstream refresh in flight.
 
 **Tag extraction.** Both paths use the same extraction logic. The module reads the configured header names (`Surrogate-Key` and `Cache-Tag` by default) from the binary nginx cache file header and splits the value on commas and ASCII whitespace. Duplicate tags within a single response are deduplicated. The hard limit is 1000 extracted tag tokens per scan.
 
@@ -596,7 +609,7 @@ This shared-memory store is currently the only supported index backend. The modu
 
 **Read path.** Tag purges look up matching cache paths from the in-memory tag index, but only after the zone has reached the ready state. Exact-key fanout looks up sibling paths from the in-memory exact-key index. Wildcard key-prefix purges read in-memory per-file key metadata before deciding whether a filesystem walk is needed.
 
-**Write path.** The owner worker updates the in-memory zone as cache files are created, replaced, or removed. Hard purges delete the cache file and remove the corresponding in-memory entry in the same request path.
+**Write path.** Hard purges delete the cache file and remove the corresponding in-memory entry in the same request path. Startup bootstrap repopulates index state for existing files after loader warmup.
 
 **Storage estimate.** Shared-memory usage scales with the number of cached files, the number of distinct exact keys and tags, the total number of file-tag relations, and the size of stored cache keys and paths. Exact-key fanout now pays extra metadata per tracked file, and tag purge now pays extra metadata per file-tag relation. Start with `32m` for moderate tag usage and increase it if your cache holds a large number of tagged objects or many tags per object.
 

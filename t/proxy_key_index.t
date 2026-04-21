@@ -51,6 +51,11 @@ our $config = <<'_EOC_';
         return 200         "prefix-b";
     }
 
+    location = /origin/prefix-c {
+        add_header         Surrogate-Key "group-prefix";
+        return 200         "prefix-c";
+    }
+
     location = /_stats {
         cache_pilot_stats key_cache_test;
     }
@@ -565,15 +570,15 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 
-=== TEST 29: prepare JSON prefix-b entry for wildcard key-index response coverage
+=== TEST 29: prepare JSON prefix-c entry for wildcard key-index response coverage
 --- http_config eval: $::http_config
 --- config eval: $::config_json
 --- request
-GET /proxy_json/prefix-b
+GET /proxy_json/prefix-c
 --- error_code: 200
 --- response_headers
 X-Cache-Status: MISS
---- response_body: prefix-b
+--- response_body: prefix-c
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/
@@ -610,15 +615,15 @@ qr/\[(warn|error|crit|alert|emerg)\]/
 
 
 
-=== TEST 32: second JSON prefix entry is a miss after wildcard key-index purge
+=== TEST 32: newly written JSON prefix entry is a miss after wildcard key-index purge
 --- http_config eval: $::http_config
 --- config eval: $::config_json
 --- request
-GET /proxy_json/prefix-b
+GET /proxy_json/prefix-c
 --- error_code: 200
 --- response_headers
 X-Cache-Status: MISS
---- response_body: prefix-b
+--- response_body: prefix-c
 --- timeout: 10
 --- no_error_log eval
 qr/\[(warn|error|crit|alert|emerg)\]/

@@ -1952,11 +1952,6 @@ ngx_http_cache_pilot_soft_path(ngx_http_file_cache_t *cache, ngx_str_t *path,
     ngx_http_file_cache_node_t  *node;
     u_char                       key[NGX_HTTP_CACHE_KEY_LEN];
 
-    rc = ngx_http_cache_pilot_soft_header(path, log);
-    if (rc != NGX_OK) {
-        return rc;
-    }
-
     if (ngx_http_cache_pilot_filename_key(path, key) == NGX_OK) {
         ngx_shmtx_lock(&cache->shpool->mutex);
 
@@ -1966,6 +1961,11 @@ ngx_http_cache_pilot_soft_path(ngx_http_file_cache_t *cache, ngx_str_t *path,
         }
 
         ngx_shmtx_unlock(&cache->shpool->mutex);
+    }
+
+    rc = ngx_http_cache_pilot_soft_header(path, log);
+    if (rc != NGX_OK) {
+        return rc;
     }
 
     return NGX_OK;
@@ -2347,8 +2347,7 @@ ngx_http_cache_pilot_response_path_value(ngx_http_request_t *r) {
         ngx_string("exact-key-fanout"),
         ngx_string("key-prefix-index"),
         ngx_string("filesystem-fallback"),
-        ngx_string("reused-persisted-index"),
-        ngx_string("bootstrapped-on-demand")
+        ngx_string("reused-persisted-index")
     };
 
     ngx_http_cache_pilot_request_ctx_t  *ctx;
@@ -2447,9 +2446,7 @@ ngx_http_cache_pilot_key_index_ready(ngx_http_request_t *r,
 
     *reader = ngx_http_cache_index_store_reader(*pmcf, r->connection->log);
     if (*reader == NULL) {
-        if (ngx_http_cache_index_is_owner()) {
-            *reader = ngx_http_cache_index_store_writer();
-        }
+        *reader = ngx_http_cache_index_store_writer();
         if (*reader == NULL) {
             return NGX_DECLINED;
         }
@@ -2797,6 +2794,7 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
     ngx_uint_t             purged_count;
     ngx_int_t              purge_rc;
     ngx_int_t              rc;
+    ngx_int_t              cache_open_state;
     ngx_http_file_cache_t  *cache;
     ngx_http_cache_t       *c;
     ngx_http_cache_pilot_main_conf_t *pmcf_m;
@@ -2807,8 +2805,11 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
     ngx_str_t                       *kv;
     ngx_str_t                        key_text;
     ngx_uint_t                       ki;
+    ngx_flag_t                       saw_updating;
 
-    switch (ngx_http_file_cache_open(r)) {
+    cache_open_state = ngx_http_file_cache_open(r);
+
+    switch (cache_open_state) {
     case NGX_OK:
     case NGX_HTTP_CACHE_STALE:
 #  if (nginx_version >= 8001) \
@@ -2828,6 +2829,14 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
 
     c = r->cache;
     cache = c->file_cache;
+    saw_updating = 0;
+
+#  if (nginx_version >= 8001) \
+       || ((nginx_version < 8000) && (nginx_version >= 7060))
+    if (cache_open_state == NGX_HTTP_CACHE_UPDATING) {
+        saw_updating = 1;
+    }
+#  endif
 
     ngx_shmtx_lock(&cache->shpool->mutex);
 
@@ -2836,6 +2845,9 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
         return NGX_DECLINED;
     }
 
+    c->valid_sec = 0;
+    c->node->valid_sec = 0;
+
     ngx_shmtx_unlock(&cache->shpool->mutex);
 
     rc = ngx_http_cache_pilot_soft_header(&c->file.name, r->connection->log);
@@ -2843,14 +2855,11 @@ ngx_http_cache_pilot_exact_purge_soft(ngx_http_request_t *r) {
         return rc;
     }
 
-    ngx_shmtx_lock(&cache->shpool->mutex);
-
-    if (c->node->exists) {
-        c->valid_sec = 0;
-        c->node->valid_sec = 0;
+    if (saw_updating && !c->updating) {
+        ngx_log_error(NGX_LOG_WARN, r->connection->log, 0,
+                      "soft purge touched an updating cache entry without lock ownership; "
+                      "enable proxy_cache_lock and proxy_cache_use_stale updating to prevent backend bursts");
     }
-
-    ngx_shmtx_unlock(&cache->shpool->mutex);
 
     fanout_used = 0;
     purged_count = 1;
