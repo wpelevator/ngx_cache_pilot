@@ -779,9 +779,13 @@ ngx_http_cache_index_try_bootstrap_zones(ngx_cycle_t *cycle,
             return NGX_ERROR;
         }
 
-        state.bootstrap_complete = 1;
-        state.last_bootstrap_at = ngx_time();
-        state.last_updated_at = state.last_bootstrap_at;
+        state.bootstrap_complete = 0;
+        state.last_bootstrap_at = 0;
+        state.last_updated_at = 0;
+        if (ngx_http_cache_index_store_get_zone_state(writer, &zone[i].zone_name,
+                &state, cycle->log) != NGX_OK) {
+            return NGX_ERROR;
+        }
         ngx_http_cache_index_zone_state_cache_set(zone[i].cache, &state);
 
         ngx_log_error(NGX_LOG_NOTICE, cycle->log, 0,
