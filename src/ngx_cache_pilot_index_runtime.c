@@ -1,5 +1,5 @@
 /*
- * Cross-platform cache index updater.
+ * Cache index runtime.
  *
  * Replaces the Linux-only inotify watcher with two nginx-native hooks:
  *
@@ -17,8 +17,7 @@
  * already handled gracefully by the purge path).
  *
  * The cold-start bootstrap scan (reading existing cache files from disk) is
- * still performed on process init through the Linux-specific runtime helpers
- * in this file.
+ * also handled here through the Linux-specific runtime helpers.
  */
 
 #include "ngx_cache_pilot_index.h"
