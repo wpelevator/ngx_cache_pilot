@@ -10,6 +10,7 @@
 
 ### Changed
 
+- Rewrote `README.md`: deduplicated sections that had accumulated over time, added a table of contents, explained what a distro nginx ABI is and how `Vary` turns one cache key into several cache files, and stated up front how the module differs from `ngx_cache_purge` (cache tags, soft purge, indexed fanout instead of a per-purge cache-directory walk, metrics endpoint). Removed a stale note claiming the trailing purge argument is stored as a literal string; every condition is compiled as a complex value.
 - Run Launchpad publishing to `ppa:wpelevator/packages` automatically for semantic-version tag pushes and reject tags that do not match the upstream version in `debian/changelog`.
 
 ### Removed
