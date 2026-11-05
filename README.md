@@ -75,7 +75,9 @@ Deleting a hot object drops every visitor onto a cold miss until the upstream an
 - Cache-tag and cache-key indexing require Linux. Exact and wildcard key purge and soft purge work anywhere nginx does.
 - A dynamic build of this module still needs the nginx cache modules it integrates with (`ngx_http_proxy_module`, `ngx_http_fastcgi_module`, `ngx_http_scgi_module`, `ngx_http_uwsgi_module`). If your distribution ships those as separate dynamic modules, load them before this one.
 
-CI validates source builds against nginx `1.26.3`, `1.28.3`, and `1.29.8`.
+CI validates source builds against nginx `1.26.3` (oldest validated release), `1.30.6` (latest stable), and `1.31.8` (latest mainline). Intermediate releases are not pinned in CI because no code special-cases them: all version conditionals in the source are thresholds of `1.25.4` or lower. The module itself supports nginx `1.21.4` or newer per the requirements above. Dev images are published per validated nginx version, so any of these can be run locally without building nginx yourself.
+
+Local development defaults (`Makefile`, `Dockerfile`, `docker-compose.yml`) use the latest mainline version.
 
 ## Installation
 
@@ -473,7 +475,7 @@ make test
 make bench-quick
 ```
 
-Both images are published: `ghcr.io/wpelevator/ngx-cache-pilot--dev:<nginx-version>` for each nginx version validated in CI, and `ghcr.io/wpelevator/ngx-cache-pilot--packaging`. `docker compose build dev` and `docker compose build packaging` rebuild them locally when you are changing the containers themselves.
+Both images are published: `ghcr.io/wpelevator/ngx-cache-pilot--dev:1.0.0-nginx-<nginx-version>` for each nginx version validated in CI, and `ghcr.io/wpelevator/ngx-cache-pilot--packaging`. `docker compose build dev` and `docker compose build packaging` rebuild them locally when you are changing the containers themselves.
 
 In GitHub Codespaces the `.devcontainer` is already the development environment, so run `make` targets directly. The docker-compose workflow described here is for local development only.
 

@@ -4,6 +4,14 @@
 
 ### Added
 
+- CI builds, tests, and benchmarks against nginx `1.30.6` (latest stable) and `1.31.8` (latest mainline); source builds and the full `Test::Nginx` suite pass on both versions.
+
+### Changed
+
+- CI matrix covers the oldest validated nginx (`1.26.3`), latest stable (`1.30.6`), and latest mainline (`1.31.8`); intermediate `1.28.3` and `1.29.8` pins were dropped because no code special-cases those releases.
+- Default local nginx version for development, dev-image builds, and dev-image tags changed from `1.25.5` to latest mainline (`1.31.8`).
+- Corrected the documented dev image tag `ghcr.io/wpelevator/ngx-cache-pilot--dev:1.0.0-nginx-<nginx-version>` in the development workflow docs.
+
 - Publish Ubuntu 26.04 (`resolute`) PPA source uploads alongside `noble`.
 - Document installing the module from `ppa:wpelevator/packages` in the packaged install instructions.
 - Document the minimum supported nginx version of `1.21.4`.

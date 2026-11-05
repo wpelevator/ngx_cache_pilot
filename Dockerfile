@@ -34,7 +34,7 @@ RUN apt-get update \
 RUN git clone --depth=1 --branch v0.32 https://github.com/openresty/test-nginx.git /opt/test-nginx \
     && cpanm --notest /opt/test-nginx
 
-ARG NGINX_VERSION=1.25.5
+ARG NGINX_VERSION=1.31.8
 ENV NGINX_VERSION=${NGINX_VERSION}
 ENV NGINX_SRC_DIR=/opt/nginx-src/nginx-${NGINX_VERSION}
 

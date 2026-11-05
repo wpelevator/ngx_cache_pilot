@@ -1,4 +1,4 @@
-NGINX_VERSION ?= 1.25.5
+NGINX_VERSION ?= 1.31.8
 NGINX_SRC_DIR ?= /opt/nginx-src/nginx-$(NGINX_VERSION)
 NGINX_BUILD_PREFIX ?= /opt/nginx
 MODULE_DIR ?= $(CURDIR)
