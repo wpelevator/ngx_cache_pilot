@@ -15,7 +15,7 @@
   - `docker compose run --rm packaging make debian-package-smoke`
   - `docker compose run --rm packaging make debian-source-package ...`
 - In GitHub Codespaces, the `.devcontainer` is already the development environment, so run the usual `make` targets directly instead of nesting `docker compose`.
-- CI validates source builds and benchmarks against nginx `1.26.3`, `1.28.3`, and `1.29.8`. Keep workflow matrices and published dev-image versions in sync when changing supported nginx versions; note that the local Makefile default may differ.
+- CI validates source builds and benchmarks against nginx `1.26.3`, `1.28.3`, `1.29.8`, `1.30.6` (latest stable), and `1.31.8` (latest mainline). Keep workflow matrices and published dev-image versions in sync when changing supported nginx versions; note that the local Makefile default may differ.
 - CI formatting runs `docker compose run --rm dev make format` and then checks for source diffs. After formatting locally, inspect the diff before closing the task.
 - For performance-sensitive purge or index changes, run `docker compose run --rm dev make bench-quick` when practical.
 - For non-trivial C refactors, check editor diagnostics first, then run containerized tests. Static diagnostics are useful for fast feedback, but they do not reliably catch nginx-version-specific or preprocessor-heavy regressions in this repo.

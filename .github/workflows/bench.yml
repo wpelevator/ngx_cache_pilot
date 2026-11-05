@@ -26,6 +26,8 @@ jobs:
           - "1.26.3"
           - "1.28.3"
           - "1.29.8"
+          - "1.30.6"
+          - "1.31.8"
     env:
       NGINX_VERSION: ${{ matrix.nginx_version }}
     steps:

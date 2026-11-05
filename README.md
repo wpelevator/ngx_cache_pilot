@@ -75,7 +75,7 @@ Deleting a hot object drops every visitor onto a cold miss until the upstream an
 - Cache-tag and cache-key indexing require Linux. Exact and wildcard key purge and soft purge work anywhere nginx does.
 - A dynamic build of this module still needs the nginx cache modules it integrates with (`ngx_http_proxy_module`, `ngx_http_fastcgi_module`, `ngx_http_scgi_module`, `ngx_http_uwsgi_module`). If your distribution ships those as separate dynamic modules, load them before this one.
 
-CI validates source builds against nginx `1.26.3`, `1.28.3`, and `1.29.8`.
+CI validates source builds against nginx `1.26.3`, `1.28.3`, `1.29.8`, `1.30.6` (latest stable), and `1.31.8` (latest mainline). The dev images for each validated version are published per nginx version, so any of these can be run locally without building nginx yourself.
 
 ## Installation
 

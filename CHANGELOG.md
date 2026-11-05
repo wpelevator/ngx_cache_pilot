@@ -4,6 +4,8 @@
 
 ### Added
 
+- CI builds, tests, and benchmarks against nginx `1.30.6` (latest stable) and `1.31.8` (latest mainline) as well, with matching published dev images; source builds and the full `Test::Nginx` suite pass on both versions.
+
 - Publish Ubuntu 26.04 (`resolute`) PPA source uploads alongside `noble`.
 - Document installing the module from `ppa:wpelevator/packages` in the packaged install instructions.
 - Document the minimum supported nginx version of `1.21.4`.
