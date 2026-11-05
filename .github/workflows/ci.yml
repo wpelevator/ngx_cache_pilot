@@ -26,8 +26,6 @@ jobs:
         # Keep these in sync with bench and docker images workflow configuration.
         nginx_version:
           - "1.26.3"
-          - "1.28.3"
-          - "1.29.8"
           - "1.30.6"
           - "1.31.8"
     env:

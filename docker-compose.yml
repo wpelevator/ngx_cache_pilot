@@ -1,10 +1,10 @@
 services:
   dev:
-    image: ghcr.io/wpelevator/ngx-cache-pilot--dev:1.0.0-nginx-${NGINX_VERSION:-1.25.5}
+    image: ghcr.io/wpelevator/ngx-cache-pilot--dev:1.0.0-nginx-${NGINX_VERSION:-1.31.8}
     build:
       context: .
       args:
-        NGINX_VERSION: ${NGINX_VERSION:-1.25.5}
+        NGINX_VERSION: ${NGINX_VERSION:-1.31.8}
     working_dir: /workspace
     volumes:
       - .:/workspace
